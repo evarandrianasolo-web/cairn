@@ -29,7 +29,7 @@ export default async function ActivitiesPage({
   const { data: activities, count } = await supabase
     .from('activities')
     .select(
-      'id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km, user_notes',
+      'id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km, user_notes, fueling_logs(id)',
       { count: 'exact' },
     )
     .order('started_at', { ascending: false })
@@ -90,7 +90,20 @@ export default async function ActivitiesPage({
                       <Link href={`/activities/${a.id}`} className="block">
                         {a.name ?? '—'}
                         {a.user_notes && (
-                          <span className="ml-2 text-xs text-granit">✎</span>
+                          <span
+                            className="ml-2 text-xs text-granit"
+                            title="notes personnelles"
+                          >
+                            ✎
+                          </span>
+                        )}
+                        {Array.isArray(a.fueling_logs) && a.fueling_logs.length > 0 && (
+                          <span
+                            className="ml-1 font-mono text-xs text-granit"
+                            title="fueling loggé"
+                          >
+                            g/h
+                          </span>
                         )}
                       </Link>
                     </td>

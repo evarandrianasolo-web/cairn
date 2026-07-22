@@ -46,13 +46,13 @@ const LONG_SECS = 90 * 60
 export default async function FuelingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ erreur?: string; ok?: string; edit?: string }>
+  searchParams: Promise<{ erreur?: string; ok?: string; edit?: string; activity?: string }>
 }) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { erreur, edit: editingId } = await searchParams
+  const { erreur, edit: editingId, activity: preselectActivityId } = await searchParams
 
   const { data: candidateActivities } = await supabase
     .from('activities')
@@ -70,9 +70,29 @@ export default async function FuelingPage({
     .limit(30)
 
   const loggedActivityIds = new Set((logs ?? []).map((l) => l.activity_id).filter(Boolean))
-  const activities = (candidateActivities ?? []).filter(
+  let activities = (candidateActivities ?? []).filter(
     (a) => !loggedActivityIds.has(a.id),
   )
+
+  // Si on arrive avec ?activity=<id>, s'assurer que la séance est dans le
+  // sélecteur (elle peut être hors du top 20 récentes) et sera pré-choisie
+  // en premier. Si elle est déjà loggée, on ne la ré-ajoute pas.
+  if (preselectActivityId && !loggedActivityIds.has(preselectActivityId)) {
+    const alreadyIn = activities.some((a) => a.id === preselectActivityId)
+    if (!alreadyIn) {
+      const { data: extra } = await supabase
+        .from('activities')
+        .select('id, name, sport_type, started_at, distance_m, moving_time_s')
+        .eq('id', preselectActivityId)
+        .maybeSingle()
+      if (extra) activities = [extra, ...activities]
+    } else {
+      activities = [
+        activities.find((a) => a.id === preselectActivityId)!,
+        ...activities.filter((a) => a.id !== preselectActivityId),
+      ]
+    }
+  }
 
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-6">
@@ -86,7 +106,10 @@ export default async function FuelingPage({
       )}
 
       {!editingId && activities.length > 0 && (
-        <NewFuelingForm activities={activities} />
+        <NewFuelingForm
+          activities={activities}
+          defaultActivityId={preselectActivityId ?? null}
+        />
       )}
       {!editingId && activities.length === 0 && (
         <p className="text-base text-granit">

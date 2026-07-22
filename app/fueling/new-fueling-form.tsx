@@ -30,7 +30,13 @@ const ISSUES: { code: Issue; label: string; hint: string }[] = [
   { code: 'autre', label: 'Autre', hint: 'décrire dans les notes' },
 ]
 
-export function NewFuelingForm({ activities }: { activities: Activity[] }) {
+export function NewFuelingForm({
+  activities,
+  defaultActivityId = null,
+}: {
+  activities: Activity[]
+  defaultActivityId?: string | null
+}) {
   const [intake, setIntake] = useState<IntakePattern>('regulierement')
   const [issue, setIssue] = useState<Issue>('aucun')
 
@@ -48,7 +54,7 @@ export function NewFuelingForm({ activities }: { activities: Activity[] }) {
         <select
           required
           name="activity_id"
-          defaultValue=""
+          defaultValue={defaultActivityId ?? ''}
           className="rounded-data border border-granit/35 bg-craie px-2 py-1.5 text-base text-schiste focus:border-schiste focus:outline-none"
         >
           <option value="" disabled>

@@ -11,6 +11,22 @@ import {
 } from '@/lib/format'
 import { updateActivityNotes } from '../actions'
 
+const INTAKE_LABELS = {
+  rien: 'rien',
+  un_peu: 'un peu',
+  regulierement: 'régulièrement',
+} as const
+
+const ISSUE_LABELS = {
+  aucun: 'ok',
+  oubli: 'oublié',
+  nausee: 'nausée',
+  pas_acces: 'pas d\'accès',
+  autre: 'autre',
+} as const
+
+const LONG_SECS = 90 * 60
+
 export default async function ActivityDetailPage({
   params,
   searchParams,
@@ -34,6 +50,17 @@ export default async function ActivityDetailPage({
     .maybeSingle()
 
   if (!activity) redirect('/activities')
+
+  const { data: fueling } = await supabase
+    .from('fueling_logs')
+    .select(
+      'id, intake_pattern, carbs_g, carbs_g_per_hour, products, issue, post_window_fed, notes',
+    )
+    .eq('activity_id', activity.id)
+    .maybeSingle()
+
+  const isLongEnough =
+    activity.moving_time_s != null && activity.moving_time_s >= LONG_SECS
 
   const stravaUrl = activity.strava_activity_id
     ? `https://www.strava.com/activities/${activity.strava_activity_id}`
@@ -77,6 +104,65 @@ export default async function ActivityDetailPage({
           </p>
         </section>
       )}
+
+      <section>
+        <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
+          Fueling
+        </h2>
+        {fueling ? (
+          <div className="mt-3 rounded-data border border-brume bg-craie px-3 py-3">
+            <p className="text-base text-schiste">
+              <span className="font-mono tabular text-schiste">
+                {fueling.carbs_g_per_hour != null
+                  ? `${fueling.carbs_g_per_hour} g/h`
+                  : `— g/h`}
+              </span>
+              {' · '}
+              <span>{INTAKE_LABELS[fueling.intake_pattern as keyof typeof INTAKE_LABELS]}</span>
+              {fueling.issue !== 'aucun' && (
+                <>
+                  {' · '}
+                  <span className="text-ocre">
+                    {ISSUE_LABELS[fueling.issue as keyof typeof ISSUE_LABELS]}
+                  </span>
+                </>
+              )}
+              {fueling.post_window_fed && (
+                <span className="ml-2 text-xs text-granit">post ✓</span>
+              )}
+            </p>
+            {(fueling.products as { text?: string } | null)?.text && (
+              <p className="mt-1 text-sm italic text-granit">
+                {(fueling.products as { text?: string }).text}
+              </p>
+            )}
+            {fueling.notes && (
+              <p className="mt-1 text-sm text-granit whitespace-pre-line">
+                {fueling.notes}
+              </p>
+            )}
+            <Link
+              href={`/fueling?edit=${fueling.id}`}
+              className="mt-3 inline-block text-xs text-granit hover:text-schiste"
+            >
+              modifier le fueling
+            </Link>
+          </div>
+        ) : isLongEnough ? (
+          <div className="mt-3">
+            <Link
+              href={`/fueling?activity=${activity.id}`}
+              className="inline-block rounded-surface border border-schiste bg-schiste px-3 py-2 text-sm font-medium text-craie"
+            >
+              Logger un fueling
+            </Link>
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-granit">
+            Séance de moins d&apos;1 h 30 — pas de log de fueling à cette échelle.
+          </p>
+        )}
+      </section>
 
       <section>
         <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
