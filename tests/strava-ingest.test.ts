@@ -37,6 +37,20 @@ describe("filtrage FC à l'ingestion", () => {
     })
   })
 
+  it('arrondit les valeurs FC décimales — la base stocke des smallint', () => {
+    const decimal: StravaActivity = {
+      ...brute,
+      average_heartrate: 144.6,
+      max_heartrate: 172.3,
+      suffer_score: 210.9,
+    }
+    expect(extractHealth(decimal, true)).toEqual({
+      avg_hr: 145,
+      max_hr: 172,
+      relative_effort: 211,
+    })
+  })
+
   it("transformActivity n'expose aucun champ de FC, quoi qu'il arrive", () => {
     const row = transformActivity(brute) as Record<string, unknown>
     for (const k of Object.keys(row)) {

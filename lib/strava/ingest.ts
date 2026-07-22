@@ -51,8 +51,11 @@ export function extractHealth(raw: StravaActivity, fcConsent: boolean): HealthRo
   if (!fcConsent) return null
   if (!raw.has_heartrate) return null
   return {
-    avg_hr: raw.average_heartrate ?? null,
-    max_hr: raw.max_heartrate ?? null,
-    relative_effort: raw.suffer_score ?? null,
+    // Strava renvoie parfois des décimales (moyennes du signal).
+    // Les colonnes sont en smallint côté base — on arrondit à l'entier
+    // le plus proche à l'ingestion.
+    avg_hr: raw.average_heartrate != null ? Math.round(raw.average_heartrate) : null,
+    max_hr: raw.max_heartrate != null ? Math.round(raw.max_heartrate) : null,
+    relative_effort: raw.suffer_score != null ? Math.round(raw.suffer_score) : null,
   }
 }
