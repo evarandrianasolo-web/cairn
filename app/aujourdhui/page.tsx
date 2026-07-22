@@ -3,9 +3,33 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { DeuxBarres } from '@/components/marks/deux-barres'
 import { Chevron } from '@/components/marks/chevron'
 import { Croix } from '@/components/marks/croix'
+import { formatJMinus } from '@/lib/format'
 import { JeNePeuxPas } from './je-ne-peux-pas'
 
 type Etat = 'nominal' | 'reajustement' | 'repos'
+
+type NextRace = { name: string; race_date: string } | null
+
+const META_DATE = new Intl.DateTimeFormat('fr-FR', {
+  weekday: 'short',
+  day: 'numeric',
+  month: 'long',
+})
+
+async function nextARace(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+): Promise<NextRace> {
+  const today = new Date().toISOString().slice(0, 10)
+  const { data } = await supabase
+    .from('races')
+    .select('name, race_date')
+    .eq('priority', 'A')
+    .gte('race_date', today)
+    .order('race_date', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  return data ?? null
+}
 
 const DISPLAY_STYLE = { fontVariationSettings: "'wdth' 125" } as const
 const DATA_STYLE = { letterSpacing: '-0.03em' } as const
@@ -27,23 +51,42 @@ export default async function AujourdhuiPage({
   if (!user) redirect('/login')
 
   const { etat = 'nominal' } = await searchParams
+  const race = await nextARace(supabase)
 
   return (
     <main className="mx-auto flex min-h-[calc(100vh-52px)] w-full max-w-[390px] flex-col bg-brume px-[26px] py-8">
-      <MetaLine />
+      <MetaLine race={race} />
       {etat === 'repos' ? <EtatRepos /> : <EtatSeance kind={etat} />}
       <DevSwitch etat={etat} />
     </main>
   )
 }
 
-function MetaLine() {
+function MetaLine({ race }: { race: NextRace }) {
+  const dateLabel = META_DATE.format(new Date())
   return (
     <div className="flex justify-between font-mono text-xs text-granit" style={DATA_STYLE}>
-      <span>mer. 22 juillet</span>
-      <span>J−73 · UTMJ</span>
+      <span>{dateLabel}</span>
+      {race ? (
+        <span>
+          {formatJMinus(race.race_date)} · {shortName(race.name)}
+        </span>
+      ) : (
+        <span>pas de course A</span>
+      )}
     </div>
   )
+}
+
+function shortName(name: string): string {
+  const trimmed = name.trim()
+  if (trimmed.length <= 6) return trimmed
+  const initials = trimmed
+    .split(/\s+/)
+    .filter((w) => /^[A-ZÀ-Ý]/.test(w))
+    .map((w) => w[0])
+    .join('')
+  return initials.length >= 2 ? initials : trimmed.slice(0, 6).toUpperCase()
 }
 
 function EtatRepos() {

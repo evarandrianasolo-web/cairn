@@ -53,6 +53,9 @@ export default function RootLayout({
             <Link href="/activities" className="text-schiste hover:underline">
               Activités
             </Link>
+            <Link href="/courses" className="text-schiste hover:underline">
+              Courses
+            </Link>
             <Link href="/settings/strava" className="text-granit hover:underline">
               Strava
             </Link>

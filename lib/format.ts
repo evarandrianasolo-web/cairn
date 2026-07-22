@@ -41,3 +41,35 @@ export function formatAllure(sPerKm: number | null): string {
   const s = Math.round(sPerKm % 60)
   return `${m}:${s.toString().padStart(2, '0')}/km`
 }
+
+const RACE_DATE = new Intl.DateTimeFormat('fr-FR', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+})
+
+export function formatRaceDate(iso: string): string {
+  return RACE_DATE.format(new Date(iso + 'T00:00:00Z'))
+}
+
+/**
+ * Nombre de jours entre aujourd'hui et une date-cible.
+ * Positif : la date est dans le futur (« J−73 »).
+ * Négatif ou nul : passée ou aujourd'hui.
+ */
+export function daysUntil(iso: string): number {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const target = new Date(iso + 'T00:00:00Z')
+  const diff = target.getTime() - today.getTime()
+  return Math.round(diff / (1000 * 60 * 60 * 24))
+}
+
+/** Format J−X, J−0, ou J+X pour une date passée. */
+export function formatJMinus(iso: string): string {
+  const n = daysUntil(iso)
+  if (n > 0) return `J−${n}`
+  if (n === 0) return 'J−0'
+  return `J+${-n}`
+}
+
