@@ -53,6 +53,9 @@ export default function RootLayout({
             <Link href="/activities" className="text-schiste hover:underline">
               Activités
             </Link>
+            <Link href="/dashboard" className="text-schiste hover:underline">
+              Dashboard
+            </Link>
             <Link href="/courses" className="text-schiste hover:underline">
               Courses
             </Link>
