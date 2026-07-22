@@ -59,6 +59,9 @@ export default function RootLayout({
             <Link href="/contraintes" className="text-schiste hover:underline">
               Contraintes
             </Link>
+            <Link href="/fueling" className="text-schiste hover:underline">
+              Fueling
+            </Link>
             <Link href="/settings/strava" className="text-granit hover:underline">
               Strava
             </Link>
