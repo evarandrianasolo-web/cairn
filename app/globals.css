@@ -30,9 +30,13 @@
   /* --- Typographie -----------------------------------------
      Trois rôles, trois voix. Aucune fonte serif. */
 
-  --font-display: "Archivo", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Martian Mono", ui-monospace, "SF Mono", monospace;
+  /* Les variables --font-archivo, --font-instrument, --font-martian sont
+     injectées par next/font/google depuis app/layout.tsx. Sans ce pont, les
+     tokens ci-dessous ne trouvent aucune fonte chargée et le navigateur retombe
+     silencieusement sur ui-sans-serif. */
+  --font-display: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-martian), ui-monospace, "SF Mono", monospace;
 
   /* Échelle resserrée — six pas, pas davantage */
   --text-xs: 0.75rem;
