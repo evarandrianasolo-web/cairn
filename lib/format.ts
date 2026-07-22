@@ -119,3 +119,50 @@ export function formatGoalTime(seconds: number | null): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+/* --- Contraintes -------------------------------------------------------- */
+
+export const WEEKDAY_CODES = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'] as const
+export type WeekdayCode = (typeof WEEKDAY_CODES)[number]
+
+export const WEEKDAY_LABELS: Record<WeekdayCode, string> = {
+  MO: 'lun',
+  TU: 'mar',
+  WE: 'mer',
+  TH: 'jeu',
+  FR: 'ven',
+  SA: 'sam',
+  SU: 'dim',
+}
+
+export function buildWeeklyRRule(days: WeekdayCode[]): string | null {
+  if (days.length === 0) return null
+  const ordered = WEEKDAY_CODES.filter((d) => days.includes(d))
+  return `FREQ=WEEKLY;BYDAY=${ordered.join(',')}`
+}
+
+export function parseWeekdaysFromRRule(rrule: string | null | undefined): WeekdayCode[] {
+  if (!rrule) return []
+  const match = rrule.match(/BYDAY=([A-Z,]+)/)
+  if (!match) return []
+  return match[1]
+    .split(',')
+    .filter((d): d is WeekdayCode => (WEEKDAY_CODES as readonly string[]).includes(d))
+}
+
+export function formatRecurrence(rrule: string | null | undefined): string {
+  const days = parseWeekdaysFromRRule(rrule)
+  if (days.length === 0) return '—'
+  return days.map((d) => WEEKDAY_LABELS[d]).join(' · ')
+}
+
+export function formatConstraintPeriod(
+  startsOn: string | null,
+  endsOn: string | null,
+): string {
+  if (!startsOn) return '—'
+  const start = formatRaceDate(startsOn)
+  if (!endsOn || endsOn === startsOn) return `le ${start}`
+  const end = formatRaceDate(endsOn)
+  return `du ${start} au ${end}`
+}
+
