@@ -1,8 +1,10 @@
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { ScreenTitle } from '@/components/screen-title'
 import { formatConstraintPeriod, formatRecurrence } from '@/lib/format'
 import { NewConstraintForm } from './new-constraint-form'
+import { EditConstraintForm } from './edit-constraint-form'
 import { deleteConstraint } from './actions'
 
 type Constraint = {
@@ -21,13 +23,13 @@ type Constraint = {
 export default async function ContraintesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ erreur?: string; ok?: string }>
+  searchParams: Promise<{ erreur?: string; ok?: string; edit?: string }>
 }) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { erreur } = await searchParams
+  const { erreur, edit: editingId } = await searchParams
 
   const { data: constraints } = await supabase
     .from('constraints')
@@ -47,42 +49,38 @@ export default async function ContraintesPage({
     (c) => c.kind === 'ponctuelle' && (c.ends_on ?? c.starts_on ?? '') < today,
   )
 
+  const renderItem = (c: Constraint) =>
+    c.id === editingId ? (
+      <li key={c.id}>
+        <EditConstraintForm c={c} />
+      </li>
+    ) : (
+      <ConstraintItem key={c.id} c={c} />
+    )
+
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-6">
       <ScreenTitle>Contraintes</ScreenTitle>
 
       {erreur && (
-        // ocre = vigilance ; NE PAS utiliser balise (rouge du balisage GR)
-        // pour signaler une erreur — voir _handoff/README.md § Règle critique.
+        // ocre = vigilance ; jamais balise pour un message d'erreur.
         <p className="rounded-data border border-ocre/40 bg-craie px-3 py-2 text-sm text-ocre">
           {erreur}
         </p>
       )}
 
-      <NewConstraintForm />
+      {!editingId && <NewConstraintForm />}
 
       {recurrentes.length > 0 && (
-        <Section title="Récurrentes">
-          {recurrentes.map((c) => (
-            <ConstraintItem key={c.id} c={c} />
-          ))}
-        </Section>
+        <Section title="Récurrentes">{recurrentes.map(renderItem)}</Section>
       )}
 
       {aVenir.length > 0 && (
-        <Section title="À venir">
-          {aVenir.map((c) => (
-            <ConstraintItem key={c.id} c={c} />
-          ))}
-        </Section>
+        <Section title="À venir">{aVenir.map(renderItem)}</Section>
       )}
 
       {passees.length > 0 && (
-        <Section title="Passées">
-          {passees.map((c) => (
-            <ConstraintItem key={c.id} c={c} />
-          ))}
-        </Section>
+        <Section title="Passées">{passees.map(renderItem)}</Section>
       )}
 
       {rows.length === 0 && (
@@ -124,6 +122,12 @@ function ConstraintItem({ c }: { c: Constraint }) {
           )}
         </div>
         <ImpactBadge impact={c.impact} />
+        <Link
+          href={`/contraintes?edit=${c.id}`}
+          className="text-xs text-granit hover:text-schiste"
+        >
+          modifier
+        </Link>
         <form action={deleteConstraint}>
           <input type="hidden" name="id" value={c.id} />
           <button

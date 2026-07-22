@@ -194,6 +194,46 @@ export function formatRecurrence(rrule: string | null | undefined): string {
   return rrule
 }
 
+/**
+ * Décrit une RRULE dans les 4 modes exposés par le formulaire, pour
+ * pré-remplir l'écran d'édition. Fallback = custom si le motif n'est pas
+ * couvert (bimonthly, byyearday, etc.).
+ */
+export type RecurrenceMode =
+  | { freq: 'weekly-1'; days: WeekdayCode[] }
+  | { freq: 'weekly-N'; interval: number; days: WeekdayCode[] }
+  | { freq: 'monthly'; dayOfMonth: number }
+  | { freq: 'custom'; raw: string }
+
+export function parseRecurrenceMode(rrule: string | null | undefined): RecurrenceMode {
+  const empty = { freq: 'weekly-1' as const, days: [] as WeekdayCode[] }
+  if (!rrule) return empty
+  const freq = parseRRuleField(rrule, 'FREQ')
+
+  if (freq === 'WEEKLY') {
+    const intervalRaw = parseRRuleField(rrule, 'INTERVAL')
+    const days = parseWeekdaysFromRRule(rrule)
+    if (!intervalRaw || intervalRaw === '1') {
+      return { freq: 'weekly-1', days }
+    }
+    const interval = Number(intervalRaw)
+    if (Number.isFinite(interval) && interval >= 2) {
+      return { freq: 'weekly-N', interval, days }
+    }
+    return { freq: 'custom', raw: rrule }
+  }
+
+  if (freq === 'MONTHLY') {
+    const dom = Number(parseRRuleField(rrule, 'BYMONTHDAY') ?? '')
+    if (Number.isFinite(dom) && dom >= 1 && dom <= 31) {
+      return { freq: 'monthly', dayOfMonth: dom }
+    }
+    return { freq: 'custom', raw: rrule }
+  }
+
+  return { freq: 'custom', raw: rrule }
+}
+
 export function formatConstraintPeriod(
   startsOn: string | null,
   endsOn: string | null,
