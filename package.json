@@ -12,6 +12,7 @@
     "test:ingest": "vitest run tests/strava-ingest.test.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.113.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.110.8",
     "next": "16.2.11",
