@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { ScreenTitle } from '@/components/screen-title'
 import {
   formatAllure,
   formatDateCourte,
@@ -40,7 +41,7 @@ export default async function ActivitiesPage({
   return (
     <main className="mx-auto max-w-5xl p-6">
       <div className="flex items-baseline justify-between">
-        <h1 className="font-display text-xl text-schiste">Activités</h1>
+        <ScreenTitle>Activités</ScreenTitle>
         <p className="text-sm text-granit">
           <span className="tabular">{total}</span> au total
         </p>
@@ -72,7 +73,7 @@ export default async function ActivitiesPage({
               <tbody>
                 {activities?.map((a) => (
                   <tr key={a.id} className="border-t border-brume">
-                    <td className="px-3 py-2 tabular text-schiste">
+                    <td className="whitespace-nowrap px-3 py-2 tabular text-schiste">
                       {formatDateCourte(a.started_at)}
                     </td>
                     <td className="px-3 py-2 text-granit">{a.sport_type ?? '—'}</td>

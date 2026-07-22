@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { ScreenTitle } from '@/components/screen-title'
 import { formatDateCourte } from '@/lib/format'
 import { ConsentForm } from './consent-form'
 import { disconnectStrava, refreshStrava } from './actions'
@@ -22,7 +23,7 @@ export default async function StravaSettingsPage({
 
   return (
     <main className="mx-auto max-w-xl p-6">
-      <h1 className="font-display text-xl text-schiste">Strava</h1>
+      <ScreenTitle>Strava</ScreenTitle>
 
       {params.erreur && (
         <p className="mt-3 rounded-data bg-craie p-3 text-sm text-balise">

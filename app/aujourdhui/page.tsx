@@ -39,7 +39,7 @@ export default async function AujourdhuiPage({
 
 function MetaLine() {
   return (
-    <div className="flex justify-between font-mono text-[11px] text-granit" style={DATA_STYLE}>
+    <div className="flex justify-between font-mono text-xs text-granit" style={DATA_STYLE}>
       <span>mer. 22 juillet</span>
       <span>J−73 · UTMJ</span>
     </div>
@@ -51,7 +51,7 @@ function EtatRepos() {
     <div className="flex flex-1 flex-col items-center justify-center gap-4">
       <DeuxBarres size={22} />
       <h1
-        className="font-display text-[52px] font-extrabold uppercase leading-none tracking-[0.05em] text-schiste"
+        className="font-display text-display-l font-extrabold uppercase leading-none tracking-[0.05em] text-schiste"
         style={DISPLAY_STYLE}
       >
         Repos
@@ -84,26 +84,26 @@ function EtatSeance({ kind }: { kind: 'nominal' | 'reajustement' }) {
       </div>
 
       <h1
-        className="mt-[14px] font-display text-[34px] font-extrabold uppercase leading-[1.0] tracking-[0.03em] text-schiste"
+        className="mt-[14px] font-display text-2xl font-extrabold uppercase leading-none tracking-[0.03em] text-schiste"
         style={DISPLAY_STYLE}
       >
         {titre}
       </h1>
 
       <p
-        className="mt-3 font-mono text-[13px] text-schiste [font-variant-numeric:tabular-nums]"
+        className="mt-3 font-mono text-sm text-schiste [font-variant-numeric:tabular-nums]"
         style={DATA_STYLE}
       >
         {donnees}
       </p>
 
       <div className="mt-[26px] rounded-surface border border-granit/20 bg-craie p-[18px]">
-        <p className="text-[16.5px] leading-[1.5] text-schiste">{coach}</p>
+        <p className="text-lg leading-[1.5] text-schiste">{coach}</p>
       </div>
 
-      <p className="mt-[14px] text-[14px] text-granit">
+      <p className="mt-[14px] text-base text-granit">
         <span
-          className="font-mono text-[12.5px] text-schiste [font-variant-numeric:tabular-nums]"
+          className="font-mono text-sm text-schiste [font-variant-numeric:tabular-nums]"
           style={DATA_STYLE}
         >
           {fuelMain}
@@ -115,7 +115,7 @@ function EtatSeance({ kind }: { kind: 'nominal' | 'reajustement' }) {
         <JeNePeuxPas />
         <button
           type="button"
-          className="flex-1 rounded-surface border border-schiste bg-schiste px-4 py-3 text-[15px] font-medium text-craie"
+          className="flex-1 rounded-surface border border-schiste bg-schiste px-4 py-3 text-base font-medium text-craie"
         >
           En parler
         </button>
@@ -124,28 +124,28 @@ function EtatSeance({ kind }: { kind: 'nominal' | 'reajustement' }) {
       <div className="flex-1" />
 
       <details className="border-t border-granit/20 pt-[18px]" open={changedOpen}>
-        <summary className="flex cursor-pointer list-none items-center gap-3 text-[14.5px] font-medium text-schiste [&::-webkit-details-marker]:hidden">
+        <summary className="flex cursor-pointer list-none items-center gap-3 text-base font-medium text-schiste [&::-webkit-details-marker]:hidden">
           <Mark size={17} />
           <span className="flex-1">Ce qui a changé depuis hier</span>
           <span className="font-mono text-granit">{changedOpen ? '−' : '+'}</span>
         </summary>
         {nominal ? (
-          <p className="mt-3 text-[15px] text-granit">Rien.</p>
+          <p className="mt-3 text-base text-granit">Rien.</p>
         ) : (
-          <div className="mt-3 space-y-2 text-[15px] text-granit">
+          <div className="mt-3 space-y-2 text-base text-granit">
             <p className="flex items-start gap-3">
               <Chevron size={17} />
               <span>
                 Le fractionné passe de{' '}
                 <span
-                  className="font-mono text-[13px] text-schiste [font-variant-numeric:tabular-nums]"
+                  className="font-mono text-sm text-schiste [font-variant-numeric:tabular-nums]"
                   style={DATA_STYLE}
                 >
                   mar.
                 </span>{' '}
                 à{' '}
                 <span
-                  className="font-mono text-[13px] text-schiste [font-variant-numeric:tabular-nums]"
+                  className="font-mono text-sm text-schiste [font-variant-numeric:tabular-nums]"
                   style={DATA_STYLE}
                 >
                   mer.
@@ -157,7 +157,7 @@ function EtatSeance({ kind }: { kind: 'nominal' | 'reajustement' }) {
               <span>
                 Footing de récup de{' '}
                 <span
-                  className="font-mono text-[13px] [font-variant-numeric:tabular-nums]"
+                  className="font-mono text-sm [font-variant-numeric:tabular-nums]"
                   style={DATA_STYLE}
                 >
                   lun.
@@ -180,7 +180,7 @@ function EtatSeance({ kind }: { kind: 'nominal' | 'reajustement' }) {
 function DevSwitch({ etat }: { etat: Etat }) {
   const options: Etat[] = ['nominal', 'reajustement', 'repos']
   return (
-    <div className="mt-6 flex justify-center gap-2 text-[11px] text-granit">
+    <div className="mt-6 flex justify-center gap-2 text-xs text-granit">
       {options.map((o) => (
         <a
           key={o}

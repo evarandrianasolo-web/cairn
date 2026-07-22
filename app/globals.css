@@ -38,13 +38,19 @@
   --font-sans: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-martian), ui-monospace, "SF Mono", monospace;
 
-  /* Échelle resserrée — six pas, pas davantage */
-  --text-xs: 0.75rem;
-  --text-sm: 0.875rem;
-  --text-base: 1rem;
-  --text-lg: 1.25rem;
-  --text-xl: 1.75rem;
-  --text-display: 2.5rem;
+  /* Échelle du handoff (mars 2026) — pas plus de six pas visuels par écran.
+     On garde les noms Tailwind conventionnels pour les tailles existantes,
+     et on ajoute deux crans display absents jusque-là : --text-2xl (34px,
+     sous-titres display) et --text-display-l (52px, mots-clés pleine page
+     type « REPOS »).                                                     */
+  --text-xs: 0.6875rem;   /* 11px — micro */
+  --text-sm: 0.8125rem;   /* 13px — data (mono) */
+  --text-base: 0.875rem;  /* 14px — label */
+  --text-lg: 1.0625rem;   /* 17px — corps de lecture (carte coach) */
+  --text-xl: 1.75rem;     /* 28px — inchangé, headings d'écran */
+  --text-2xl: 2.125rem;   /* 34px — display secondaire */
+  --text-display: 2.5rem; /* 40px — inchangé, très gros titres écrans */
+  --text-display-l: 3.25rem; /* 52px — display-l (REPOS) */
 
   /* --- Géométrie -------------------------------------------
      La distinction est SÉMANTIQUE : les données sont anguleuses,

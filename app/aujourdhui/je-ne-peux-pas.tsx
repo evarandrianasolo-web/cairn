@@ -27,7 +27,7 @@ export function JeNePeuxPas() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex-1 rounded-surface border border-granit/35 bg-transparent px-4 py-3 text-[15px] font-medium text-schiste"
+        className="flex-1 rounded-surface border border-granit/35 bg-transparent px-4 py-3 text-base font-medium text-schiste"
       >
         Je ne peux pas
       </button>
@@ -43,14 +43,14 @@ export function JeNePeuxPas() {
           <div className="relative z-10 w-full rounded-t-surface bg-craie px-6 pt-[22px] pb-[30px]">
             <div className="flex items-start justify-between">
               <div>
-                <h2 className="text-[19px] font-semibold text-schiste">Je ne peux pas</h2>
-                <p className="mt-1 text-[14px] text-granit">Qu&apos;est-ce qui bouge ?</p>
+                <h2 className="text-lg font-semibold text-schiste">Je ne peux pas</h2>
+                <p className="mt-1 text-base text-granit">Qu&apos;est-ce qui bouge ?</p>
               </div>
               <button
                 type="button"
                 onClick={fermer}
                 aria-label="Fermer"
-                className="text-[22px] leading-none text-granit"
+                className="text-2xl leading-none text-granit"
               >
                 ×
               </button>
@@ -65,7 +65,7 @@ export function JeNePeuxPas() {
                     type="button"
                     onClick={() => setPortee(p)}
                     className={
-                      'flex-1 rounded-surface px-4 py-3 text-[14px] ' +
+                      'flex-1 rounded-surface px-4 py-3 text-base ' +
                       (actif
                         ? 'bg-schiste text-craie'
                         : 'border border-granit/35 text-schiste')
@@ -77,7 +77,7 @@ export function JeNePeuxPas() {
               })}
             </div>
 
-            <p className="mt-5 font-mono text-[11px] uppercase tracking-wide text-granit">
+            <p className="mt-5 font-mono text-xs uppercase tracking-wide text-granit">
               Pourquoi
             </p>
 
@@ -93,7 +93,7 @@ export function JeNePeuxPas() {
                       setAutreOuvert(false)
                     }}
                     className={
-                      'rounded-surface border px-4 py-2 text-[14px] ' +
+                      'rounded-surface border px-4 py-2 text-base ' +
                       (actif
                         ? 'border-schiste bg-schiste text-craie'
                         : 'border-granit/35 text-schiste')
@@ -110,7 +110,7 @@ export function JeNePeuxPas() {
                   setChoix('Autre')
                 }}
                 className={
-                  'rounded-surface border px-4 py-2 text-[14px] ' +
+                  'rounded-surface border px-4 py-2 text-base ' +
                   (autreOuvert
                     ? 'border-schiste bg-schiste text-craie'
                     : 'border-granit/35 text-schiste')
@@ -126,14 +126,14 @@ export function JeNePeuxPas() {
                 value={autreTexte}
                 onChange={(e) => setAutreTexte(e.target.value)}
                 placeholder="Dis-moi ce qui bloque"
-                className="mt-3 w-full rounded-surface border border-granit/35 bg-craie px-3 py-2 text-[14px] text-schiste focus:border-schiste focus:outline-none"
+                className="mt-3 w-full rounded-surface border border-granit/35 bg-craie px-3 py-2 text-base text-schiste focus:border-schiste focus:outline-none"
               />
             )}
 
             <button
               type="button"
               onClick={fermer}
-              className="mt-6 w-full rounded-surface bg-schiste px-4 py-3 text-[15px] font-medium text-craie"
+              className="mt-6 w-full rounded-surface bg-schiste px-4 py-3 text-base font-medium text-craie"
             >
               Prévenir le coach
             </button>
