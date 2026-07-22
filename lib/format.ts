@@ -134,10 +134,21 @@ export const WEEKDAY_LABELS: Record<WeekdayCode, string> = {
   SU: 'dim',
 }
 
-export function buildWeeklyRRule(days: WeekdayCode[]): string | null {
+export function buildWeeklyRRule(
+  days: WeekdayCode[],
+  interval = 1,
+): string | null {
   if (days.length === 0) return null
   const ordered = WEEKDAY_CODES.filter((d) => days.includes(d))
-  return `FREQ=WEEKLY;BYDAY=${ordered.join(',')}`
+  const parts = ['FREQ=WEEKLY']
+  if (interval > 1) parts.push(`INTERVAL=${interval}`)
+  parts.push(`BYDAY=${ordered.join(',')}`)
+  return parts.join(';')
+}
+
+export function buildMonthlyRRule(dayOfMonth: number): string | null {
+  if (!Number.isFinite(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31) return null
+  return `FREQ=MONTHLY;BYMONTHDAY=${dayOfMonth}`
 }
 
 export function parseWeekdaysFromRRule(rrule: string | null | undefined): WeekdayCode[] {
@@ -149,10 +160,38 @@ export function parseWeekdaysFromRRule(rrule: string | null | undefined): Weekda
     .filter((d): d is WeekdayCode => (WEEKDAY_CODES as readonly string[]).includes(d))
 }
 
+function parseRRuleField(rrule: string, field: string): string | null {
+  const m = rrule.match(new RegExp(`(?:^|;)${field}=([^;]+)`))
+  return m ? m[1] : null
+}
+
+/**
+ * Rend une RRULE en français lisible :
+ *   « lun · mer · ven »                            (weekly, chaque semaine)
+ *   « toutes les 2 semaines · mar · jeu »          (weekly avec INTERVAL)
+ *   « le 15 de chaque mois »                       (monthly avec BYMONTHDAY)
+ *   la RRULE brute en fallback, pour le mode personnalisé.
+ */
 export function formatRecurrence(rrule: string | null | undefined): string {
-  const days = parseWeekdaysFromRRule(rrule)
-  if (days.length === 0) return '—'
-  return days.map((d) => WEEKDAY_LABELS[d]).join(' · ')
+  if (!rrule) return '—'
+  const freq = parseRRuleField(rrule, 'FREQ')
+
+  if (freq === 'WEEKLY') {
+    const interval = Number(parseRRuleField(rrule, 'INTERVAL') ?? '1')
+    const days = parseWeekdaysFromRRule(rrule)
+    if (days.length === 0) return rrule
+    const daysLabel = days.map((d) => WEEKDAY_LABELS[d]).join(' · ')
+    if (interval <= 1) return daysLabel
+    return `toutes les ${interval} semaines · ${daysLabel}`
+  }
+
+  if (freq === 'MONTHLY') {
+    const dom = parseRRuleField(rrule, 'BYMONTHDAY')
+    if (dom) return `le ${dom} de chaque mois`
+    return rrule
+  }
+
+  return rrule
 }
 
 export function formatConstraintPeriod(

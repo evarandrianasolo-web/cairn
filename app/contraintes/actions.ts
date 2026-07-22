@@ -3,7 +3,12 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { WEEKDAY_CODES, type WeekdayCode, buildWeeklyRRule } from '@/lib/format'
+import {
+  WEEKDAY_CODES,
+  type WeekdayCode,
+  buildMonthlyRRule,
+  buildWeeklyRRule,
+} from '@/lib/format'
 
 type Kind = 'recurrente' | 'ponctuelle'
 type ConstraintType =
@@ -57,9 +62,32 @@ export async function addConstraint(formData: FormData) {
   let endsOn: string | null = null
 
   if (kind === 'recurrente') {
+    const freq = String(formData.get('frequency') ?? 'weekly-1')
     const days = WEEKDAY_CODES.filter((d) => formData.get(`day_${d}`) === 'on') as WeekdayCode[]
-    recurrenceRule = buildWeeklyRRule(days)
-    if (!recurrenceRule) throw new Error('Sélectionne au moins un jour pour une contrainte récurrente.')
+
+    if (freq === 'weekly-1') {
+      recurrenceRule = buildWeeklyRRule(days, 1)
+      if (!recurrenceRule) throw new Error('Sélectionne au moins un jour pour une contrainte hebdomadaire.')
+    } else if (freq === 'weekly-N') {
+      const interval = Number.parseInt(String(formData.get('interval') ?? '2'), 10)
+      if (!Number.isFinite(interval) || interval < 2) {
+        throw new Error("L'intervalle doit être ≥ 2 semaines.")
+      }
+      recurrenceRule = buildWeeklyRRule(days, interval)
+      if (!recurrenceRule) throw new Error('Sélectionne au moins un jour.')
+    } else if (freq === 'monthly') {
+      const dom = Number.parseInt(String(formData.get('day_of_month') ?? ''), 10)
+      recurrenceRule = buildMonthlyRRule(dom)
+      if (!recurrenceRule) throw new Error('Choisis un jour du mois entre 1 et 31.')
+    } else if (freq === 'custom') {
+      const raw = String(formData.get('custom_rrule') ?? '').trim()
+      if (!raw || !/FREQ=/.test(raw)) {
+        throw new Error('RRULE personnalisée invalide (doit contenir FREQ=…).')
+      }
+      recurrenceRule = raw
+    } else {
+      throw new Error(`Fréquence inconnue : ${freq}`)
+    }
   } else {
     startsOn = String(formData.get('starts_on') ?? '').trim() || null
     endsOn = String(formData.get('ends_on') ?? '').trim() || null
