@@ -30,6 +30,7 @@ const TENANT_TABLES = [
   'activities',
   'activity_health',
   'health_access_logs',
+  'strava_connections',
   'races',
   'constraints',
   'plan_weeks',
