@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { ScreenTitle } from '@/components/screen-title'
@@ -9,12 +10,19 @@ import {
   formatRaceDate,
 } from '@/lib/format'
 import { NewRaceForm } from './new-race-form'
+import { EditRaceForm } from './edit-race-form'
 import { deleteRace } from './actions'
 
-export default async function CoursesPage() {
+export default async function CoursesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ edit?: string }>
+}) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+
+  const { edit: editingId } = await searchParams
 
   const { data: races } = await supabase
     .from('races')
@@ -23,14 +31,16 @@ export default async function CoursesPage() {
     )
     .order('race_date', { ascending: true })
 
-  const aVenir = (races ?? []).filter((r) => new Date(r.race_date) >= startOfToday())
-  const passees = (races ?? []).filter((r) => new Date(r.race_date) < startOfToday())
+  const rows = (races ?? []) as Race[]
+  const today = startOfTodayIso()
+  const aVenir = rows.filter((r) => r.race_date >= today)
+  const passees = rows.filter((r) => r.race_date < today)
 
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-6">
       <ScreenTitle>Courses</ScreenTitle>
 
-      <NewRaceForm />
+      {!editingId && <NewRaceForm />}
 
       {aVenir.length > 0 && (
         <section>
@@ -38,9 +48,15 @@ export default async function CoursesPage() {
             À venir
           </h2>
           <ul className="mt-3 space-y-2">
-            {aVenir.map((r) => (
-              <RaceItem key={r.id} race={r} />
-            ))}
+            {aVenir.map((r) =>
+              r.id === editingId ? (
+                <li key={r.id}>
+                  <EditRaceForm race={r} />
+                </li>
+              ) : (
+                <RaceItem key={r.id} race={r} />
+              ),
+            )}
           </ul>
         </section>
       )}
@@ -51,9 +67,15 @@ export default async function CoursesPage() {
             Passées
           </h2>
           <ul className="mt-3 space-y-2">
-            {passees.map((r) => (
-              <RaceItem key={r.id} race={r} />
-            ))}
+            {passees.map((r) =>
+              r.id === editingId ? (
+                <li key={r.id}>
+                  <EditRaceForm race={r} />
+                </li>
+              ) : (
+                <RaceItem key={r.id} race={r} />
+              ),
+            )}
           </ul>
         </section>
       )}
@@ -110,6 +132,12 @@ function RaceItem({ race }: { race: Race }) {
         <span className="tabular w-14 text-right text-sm text-granit">
           {formatJMinus(race.race_date)}
         </span>
+        <Link
+          href={`/courses?edit=${race.id}`}
+          className="text-xs text-granit hover:text-schiste"
+        >
+          modifier
+        </Link>
         <form action={deleteRace}>
           <input type="hidden" name="id" value={race.id} />
           <button
@@ -130,8 +158,8 @@ function RaceItem({ race }: { race: Race }) {
   )
 }
 
-function startOfToday() {
+function startOfTodayIso() {
   const t = new Date()
   t.setHours(0, 0, 0, 0)
-  return t
+  return t.toISOString().slice(0, 10)
 }
