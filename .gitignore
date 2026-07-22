@@ -22,6 +22,10 @@ supabase/.temp/
 # Claude Code — la config de lancement est partagée, pas les permissions locales
 .claude/settings.local.json
 
+# Scripts de développement locaux, souvent adossés à la clé service_role.
+# Ne jamais commiter.
+scripts/
+
 # Divers
 .DS_Store
 *.pem
