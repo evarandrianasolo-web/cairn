@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+/* =============================================================
+   CAIRN — DESIGN TOKENS
+   Tailwind v4, configuration CSS-first.
+   Il n'y a PAS de tailwind.config.ts dans ce projet.
+
+   Tailwind génère les classes à partir des variables ci-dessous :
+     --color-brume      →  bg-brume, text-brume, border-brume
+     --radius-data      →  rounded-data
+     --font-display     →  font-display
+
+   Référence : docs/Cairn_Brief_Design.md §4
+   ============================================================= */
+
+@theme {
+  /* --- Palette ---------------------------------------------
+     Base froide et minérale. Une seule couleur de signalisation. */
+
+  --color-brume: #e8eae6; /* Fond principal — brume sur une crête */
+  --color-craie: #fbfbf9; /* Surfaces, cartes, champs */
+  --color-schiste: #2a3138; /* Texte principal — ardoise, PAS un noir */
+  --color-granit: #767e7b; /* Texte secondaire, libellés */
+  --color-balise: #d6423b; /* Signalisation — le rouge du balisage GR */
+
+  /* États — dérivés, discrets */
+  --color-lichen: #9ba88d; /* Sain : conforme, bien carburé */
+  --color-ocre: #c68a3e; /* Vigilance : écart, signal à surveiller */
+
+  /* --- Typographie -----------------------------------------
+     Trois rôles, trois voix. Aucune fonte serif. */
+
+  --font-display: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Martian Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Échelle resserrée — six pas, pas davantage */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-display: 2.5rem;
+
+  /* --- Géométrie -------------------------------------------
+     La distinction est SÉMANTIQUE : les données sont anguleuses,
+     la conversation est douce. Ne pas la supprimer. */
+
+  --radius-data: 2px; /* Blocs de données, tableaux, lignes de séance */
+  --radius-surface: 8px; /* Surfaces conversationnelles, cartes */
+
+  /* --- Espacement ------------------------------------------
+     Base 4px. Tailwind fournit déjà cette échelle. */
+}
+
+/* =============================================================
+   BASE
+   ============================================================= */
+
+@layer base {
+  html {
+    background-color: var(--color-brume);
+    color: var(--color-schiste);
+  }
+
+  body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Les chiffres alignés en colonne doivent s'aligner au pixel.
+     Non négociable sur les allures, distances, D+ et g/h. */
+  .tabular,
+  [data-numeric] {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  /* Focus clavier visible partout — plancher de qualité. */
+  :focus-visible {
+    outline: 2px solid var(--color-schiste);
+    outline-offset: 2px;
+  }
+}
+
+/* =============================================================
+   MOTION
+   Une seule animation dans tout le produit : le tracé du profil
+   au chargement du Planning. Rien d'autre.
+   ============================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
