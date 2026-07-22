@@ -19,6 +19,9 @@ dist/
 .temp
 supabase/.temp/
 
+# Claude Code — la config de lancement est partagée, pas les permissions locales
+.claude/settings.local.json
+
 # Divers
 .DS_Store
 *.pem

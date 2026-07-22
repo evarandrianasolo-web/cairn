@@ -9,6 +9,9 @@
  * régression ordinaire : sur des données de santé, une fuite inter-tenant
  * est un incident à notifier à la CNIL.
  *
+ * ⚠️ Ne jamais lancer contre une base contenant des données réelles —
+ * ce test crée et supprime des utilisateurs.
+ *
  * Lancer : npm run test:isolation
  */
 
@@ -26,6 +29,7 @@ const TENANT_TABLES = [
   'athletes',
   'activities',
   'activity_health',
+  'health_access_logs',
   'races',
   'constraints',
   'plan_weeks',
@@ -34,6 +38,7 @@ const TENANT_TABLES = [
   'fueling_logs',
   'debriefs',
   'coach_threads',
+  'coach_messages',
   'consent_records',
   'plan_revisions',
 ] as const
@@ -136,6 +141,15 @@ describe('Schéma — garanties structurelles', () => {
       .join('\n')
       .toLowerCase()
 
+  // SQL débarrassé de ses commentaires, de ligne comme de bloc.
+  // On cherche les champs interdits dans le schéma réel, pas dans la prose
+  // qui l'explique : une migration doit pouvoir commenter la règle sans
+  // déclencher le test qui l'applique.
+  const sqlWithoutComments = () =>
+    sql()
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/--[^\n]*/g, ' ')
+
   it('aucune table créée sans enable row level security', () => {
     const content = sql()
     const created = [...content.matchAll(/create table (?:if not exists )?(?:public\.)?(\w+)/g)]
@@ -150,7 +164,8 @@ describe('Schéma — garanties structurelles', () => {
       'weight', 'poids', 'body_mass', 'bmi', 'imc',
       'body_fat', 'masse_grasse', 'calorie', 'kcal', 'energy_intake',
     ]
-    const found = forbidden.filter((w) => sql().includes(w))
+    const content = sqlWithoutComments()
+    const found = forbidden.filter((w) => content.includes(w))
     expect(found).toEqual([])
   })
 })
