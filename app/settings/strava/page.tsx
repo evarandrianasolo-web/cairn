@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { formatDateCourte } from '@/lib/format'
 import { ConsentForm } from './consent-form'
-import { disconnectStrava } from './actions'
+import { disconnectStrava, refreshStrava } from './actions'
 
 export default async function StravaSettingsPage({
   searchParams,
@@ -54,22 +55,40 @@ export default async function StravaSettingsPage({
           <ConsentForm />
         </div>
       ) : (
-        <div className="mt-6 space-y-3">
+        <div className="mt-6 space-y-4">
           <p className="text-sm text-schiste">
             Connecté à l&apos;athlète #{connection.strava_athlete_id}.
           </p>
           <p className="text-sm text-granit">
             Dernier import :{' '}
-            <span className="tabular">{connection.last_imported_at}</span>.
+            <span className="tabular">
+              {formatDateCourte(connection.last_imported_at)}
+            </span>
+            .
           </p>
-          <form action={disconnectStrava}>
-            <button
-              type="submit"
-              className="rounded-data border border-granit px-3 py-2 text-sm text-schiste"
-            >
-              Déconnecter Strava
-            </button>
-          </form>
+          {params.imported && (
+            <p className="rounded-data bg-craie p-3 text-sm text-schiste">
+              <span className="tabular">{params.imported}</span> activités traitées.
+            </p>
+          )}
+          <div className="flex gap-3">
+            <form action={refreshStrava}>
+              <button
+                type="submit"
+                className="rounded-data bg-schiste px-3 py-2 text-sm text-craie"
+              >
+                Rafraîchir depuis Strava
+              </button>
+            </form>
+            <form action={disconnectStrava}>
+              <button
+                type="submit"
+                className="rounded-data border border-granit px-3 py-2 text-sm text-schiste"
+              >
+                Déconnecter Strava
+              </button>
+            </form>
+          </div>
         </div>
       )}
     </main>

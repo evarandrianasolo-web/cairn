@@ -117,6 +117,35 @@ export async function saveConsentAndImport(formData: FormData) {
   redirect(`/settings/strava?imported=${imported}`)
 }
 
+/**
+ * Lit le dernier événement de consentement pour fc_stockage. Le journal étant
+ * append-only, l'état courant = la ligne la plus récente pour ce scope.
+ */
+async function currentFcConsent(supabase: SupabaseServer): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('consent_records')
+    .select('granted')
+    .eq('scope', 'fc_stockage')
+    .order('occurred_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw new Error(`Lecture consentement FC: ${error.message}`)
+  return data?.granted ?? false
+}
+
+export async function refreshStrava() {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const fcConsent = await currentFcConsent(supabase)
+  const imported = await runInitialImport(supabase, user.id, fcConsent)
+
+  revalidatePath('/settings/strava')
+  revalidatePath('/activities')
+  redirect(`/settings/strava?imported=${imported}`)
+}
+
 export async function disconnectStrava() {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
