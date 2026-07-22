@@ -75,8 +75,9 @@ export default function LoginPage() {
               {etat === 'envoi' ? 'Envoi…' : 'Recevoir le lien'}
             </button>
 
+            {/* ocre = vigilance ; jamais balise pour un message d'erreur. */}
             {etat === 'erreur' && (
-              <p className="mt-3 text-sm text-balise">{message}</p>
+              <p className="mt-3 text-sm text-ocre">{message}</p>
             )}
           </form>
         )}

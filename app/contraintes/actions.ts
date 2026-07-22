@@ -44,13 +44,18 @@ function pickEnum<T extends string>(
   return (allowed as readonly string[]).includes(v) ? (v as T) : fallback
 }
 
+/** Redirige vers /contraintes avec un message affiché dans le formulaire. */
+function failWith(message: string): never {
+  redirect(`/contraintes?erreur=${encodeURIComponent(message)}`)
+}
+
 export async function addConstraint(formData: FormData) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
   const label = String(formData.get('label') ?? '').trim()
-  if (!label) throw new Error('Le libellé est requis.')
+  if (!label) failWith('Le libellé est requis.')
 
   const kind = pickEnum<Kind>(formData.get('kind'), KINDS, 'recurrente')
   const type = pickEnum<ConstraintType>(formData.get('type'), TYPES, 'autre')
@@ -67,32 +72,32 @@ export async function addConstraint(formData: FormData) {
 
     if (freq === 'weekly-1') {
       recurrenceRule = buildWeeklyRRule(days, 1)
-      if (!recurrenceRule) throw new Error('Sélectionne au moins un jour pour une contrainte hebdomadaire.')
+      if (!recurrenceRule) failWith('Coche au moins un jour de la semaine.')
     } else if (freq === 'weekly-N') {
       const interval = Number.parseInt(String(formData.get('interval') ?? '2'), 10)
-      if (!Number.isFinite(interval) || interval < 2) {
-        throw new Error("L'intervalle doit être ≥ 2 semaines.")
+      if (!Number.isFinite(interval) || interval < 2 || interval > 12) {
+        failWith("L'intervalle doit être entre 2 et 12 semaines.")
       }
       recurrenceRule = buildWeeklyRRule(days, interval)
-      if (!recurrenceRule) throw new Error('Sélectionne au moins un jour.')
+      if (!recurrenceRule) failWith('Coche au moins un jour de la semaine.')
     } else if (freq === 'monthly') {
       const dom = Number.parseInt(String(formData.get('day_of_month') ?? ''), 10)
       recurrenceRule = buildMonthlyRRule(dom)
-      if (!recurrenceRule) throw new Error('Choisis un jour du mois entre 1 et 31.')
+      if (!recurrenceRule) failWith('Choisis un jour du mois entre 1 et 31.')
     } else if (freq === 'custom') {
       const raw = String(formData.get('custom_rrule') ?? '').trim()
       if (!raw || !/FREQ=/.test(raw)) {
-        throw new Error('RRULE personnalisée invalide (doit contenir FREQ=…).')
+        failWith('RRULE personnalisée invalide — elle doit contenir FREQ=…')
       }
       recurrenceRule = raw
     } else {
-      throw new Error(`Fréquence inconnue : ${freq}`)
+      failWith(`Fréquence inconnue : ${freq}`)
     }
   } else {
     startsOn = String(formData.get('starts_on') ?? '').trim() || null
     endsOn = String(formData.get('ends_on') ?? '').trim() || null
-    if (!startsOn) throw new Error('Date de début requise pour une contrainte ponctuelle.')
-    if (endsOn && endsOn < startsOn) throw new Error('La date de fin doit être après le début.')
+    if (!startsOn) failWith('Date de début requise pour une contrainte ponctuelle.')
+    if (endsOn && endsOn < startsOn!) failWith('La date de fin doit être après le début.')
   }
 
   const { error } = await supabase.from('constraints').insert({
@@ -106,10 +111,11 @@ export async function addConstraint(formData: FormData) {
     ends_on: endsOn,
     notes,
   })
-  if (error) throw new Error(`addConstraint: ${error.message}`)
+  if (error) failWith(`Enregistrement impossible : ${error.message}`)
 
   revalidatePath('/contraintes')
   revalidatePath('/aujourdhui')
+  redirect('/contraintes?ok=1')
 }
 
 export async function deleteConstraint(formData: FormData) {
@@ -118,10 +124,10 @@ export async function deleteConstraint(formData: FormData) {
   if (!user) redirect('/login')
 
   const id = String(formData.get('id') ?? '')
-  if (!id) throw new Error('id manquant')
+  if (!id) return
 
   const { error } = await supabase.from('constraints').delete().eq('id', id)
-  if (error) throw new Error(`deleteConstraint: ${error.message}`)
+  if (error) failWith(`Suppression impossible : ${error.message}`)
 
   revalidatePath('/contraintes')
   revalidatePath('/aujourdhui')

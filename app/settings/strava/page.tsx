@@ -26,7 +26,8 @@ export default async function StravaSettingsPage({
       <ScreenTitle>Strava</ScreenTitle>
 
       {params.erreur && (
-        <p className="mt-3 rounded-data bg-craie p-3 text-sm text-balise">
+        // ocre = vigilance ; jamais balise pour un message d'erreur.
+        <p className="mt-3 rounded-data bg-craie p-3 text-sm text-ocre">
           Erreur : {params.erreur}
         </p>
       )}

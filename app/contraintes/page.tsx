@@ -17,10 +17,16 @@ type Constraint = {
   notes: string | null
 }
 
-export default async function ContraintesPage() {
+export default async function ContraintesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ erreur?: string; ok?: string }>
+}) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+
+  const { erreur } = await searchParams
 
   const { data: constraints } = await supabase
     .from('constraints')
@@ -41,6 +47,14 @@ export default async function ContraintesPage() {
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-6">
       <ScreenTitle>Contraintes</ScreenTitle>
+
+      {erreur && (
+        // ocre = vigilance ; NE PAS utiliser balise (rouge du balisage GR)
+        // pour signaler une erreur — voir _handoff/README.md § Règle critique.
+        <p className="rounded-data border border-ocre/40 bg-craie px-3 py-2 text-sm text-ocre">
+          {erreur}
+        </p>
+      )}
 
       <NewConstraintForm />
 
