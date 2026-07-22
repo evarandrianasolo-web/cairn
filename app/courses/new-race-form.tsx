@@ -55,6 +55,7 @@ export function NewRaceForm() {
             name="distance_km"
             type="number"
             min={0}
+            step="0.1"
             placeholder="105"
             className="rounded-data border border-granit/35 bg-craie px-2 py-1.5 text-base tabular text-schiste focus:border-schiste focus:outline-none"
           />
@@ -68,6 +69,30 @@ export function NewRaceForm() {
             min={0}
             placeholder="4000"
             className="rounded-data border border-granit/35 bg-craie px-2 py-1.5 text-base tabular text-schiste focus:border-schiste focus:outline-none"
+          />
+        </label>
+
+        <label className="col-span-2 flex flex-col gap-1">
+          <span className="text-xs text-granit">
+            Temps cible <span className="text-granit/60">— optionnel</span>
+          </span>
+          <input
+            name="goal_time"
+            type="text"
+            placeholder="3h45  ·  1:24:36  ·  42min"
+            className="rounded-data border border-granit/35 bg-craie px-2 py-1.5 text-base tabular text-schiste focus:border-schiste focus:outline-none"
+          />
+        </label>
+
+        <label className="col-span-2 flex flex-col gap-1">
+          <span className="text-xs text-granit">
+            Notes <span className="text-granit/60">— stratégie, matériel, contraintes</span>
+          </span>
+          <textarea
+            name="notes"
+            rows={2}
+            placeholder="Objectif : finir. Nitrates J−3. Bâtons obligatoires au km 40."
+            className="rounded-data border border-granit/35 bg-craie px-2 py-1.5 text-base text-schiste focus:border-schiste focus:outline-none"
           />
         </label>
 

@@ -3,13 +3,14 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { parseGoalTime } from '@/lib/format'
 
 type RacePriority = 'A' | 'B' | 'C'
 const PRIORITIES: readonly RacePriority[] = ['A', 'B', 'C']
 
-function coerceInt(value: FormDataEntryValue | null): number | null {
+function coerceNumber(value: FormDataEntryValue | null): number | null {
   if (typeof value !== 'string' || value.trim() === '') return null
-  const n = Number.parseInt(value, 10)
+  const n = Number.parseFloat(value.replace(',', '.'))
   return Number.isFinite(n) ? n : null
 }
 
@@ -25,20 +26,26 @@ export async function addRace(formData: FormData) {
     ? (priorityRaw as RacePriority)
     : 'C'
   const location = String(formData.get('location') ?? '').trim() || null
+  const notes = String(formData.get('notes') ?? '').trim() || null
 
   if (!name || !raceDate) throw new Error('Nom et date sont requis.')
+
+  const distanceKm = coerceNumber(formData.get('distance_km'))
+  const distanceM = distanceKm != null ? Math.round(distanceKm * 1000) : null
+  const elevationM = coerceNumber(formData.get('elevation_gain_m'))
+  const goalTimeS = parseGoalTime(String(formData.get('goal_time') ?? ''))
 
   const { error } = await supabase.from('races').insert({
     tenant_id: user.id,
     name,
     race_date: raceDate,
     location,
-    distance_m: coerceInt(formData.get('distance_km'))
-      ? coerceInt(formData.get('distance_km'))! * 1000
-      : null,
-    elevation_gain_m: coerceInt(formData.get('elevation_gain_m')),
+    distance_m: distanceM,
+    elevation_gain_m: elevationM != null ? Math.round(elevationM) : null,
     priority,
     status: 'envisagee',
+    goal_time_s: goalTimeS,
+    notes,
   })
   if (error) throw new Error(`addRace: ${error.message}`)
 

@@ -73,3 +73,49 @@ export function formatJMinus(iso: string): string {
   return `J+${-n}`
 }
 
+/**
+ * Accepte plusieurs formats de saisie et retourne un nombre de secondes,
+ * ou null si non parsable / vide.
+ * Reconnu :
+ *   « 3h45 » « 3 h 45 » « 3h45m »  → heures + minutes
+ *   « 1:24:36 »                    → h:m:s
+ *   « 3:45 »                       → h:m (chaîne < 3 caractères sur le 1er
+ *                                    segment) ou m:s si tu préfères ? Ici
+ *                                    on interprète 2 segments comme h:m.
+ *   « 42min » « 42 m »             → minutes seules
+ */
+export function parseGoalTime(input: string | null | undefined): number | null {
+  if (!input) return null
+  const s = input.trim().toLowerCase()
+  if (!s) return null
+
+  const hm = s.match(/^(\d+)\s*h\s*(\d{0,2})\s*m?$/)
+  if (hm) return Number(hm[1]) * 3600 + Number(hm[2] || 0) * 60
+
+  const colon = s.match(/^(\d+):(\d+)(?::(\d+))?$/)
+  if (colon) {
+    const a = Number(colon[1])
+    const b = Number(colon[2])
+    const c = colon[3] != null ? Number(colon[3]) : null
+    if (c != null) return a * 3600 + b * 60 + c
+    return a * 3600 + b * 60
+  }
+
+  const minutes = s.match(/^(\d+)\s*m(?:in)?$/)
+  if (minutes) return Number(minutes[1]) * 60
+
+  return null
+}
+
+/** Secondes → « 3 h 45 » (sans secondes) ou « 3 h 45 min 12 » si secondes. */
+export function formatGoalTime(seconds: number | null): string {
+  if (seconds == null || seconds <= 0) return '—'
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = seconds % 60
+  if (h > 0 && s === 0) return `${h} h ${m.toString().padStart(2, '0')}`
+  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+  if (s === 0) return `${m} min`
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
