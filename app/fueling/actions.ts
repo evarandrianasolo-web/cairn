@@ -72,6 +72,51 @@ export async function addFuelingLog(formData: FormData) {
   redirect('/fueling?ok=1')
 }
 
+export async function updateFuelingLog(formData: FormData) {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const id = String(formData.get('id') ?? '').trim()
+  if (!id) failWith('id manquant')
+
+  const intakePattern = pickEnum<IntakePattern>(
+    formData.get('intake_pattern'),
+    INTAKE_PATTERNS,
+    'rien',
+  )
+  const issue = pickEnum<Issue>(formData.get('issue'), ISSUES, 'aucun')
+  const postWindowFed = formData.get('post_window_fed') === 'on'
+  const notes = String(formData.get('notes') ?? '').trim() || null
+  const productsText = String(formData.get('products_text') ?? '').trim() || null
+
+  const carbsPerHour = coerceNumber(formData.get('carbs_g_per_hour'))
+  const carbsTotal = coerceNumber(formData.get('carbs_g'))
+
+  const products = productsText ? { text: productsText } : null
+
+  // L'activité rattachée ne se modifie pas ici — pour la changer, supprimer
+  // le log et en créer un autre. Ça évite d'invalider l'unicité côté matching.
+  const { error } = await supabase
+    .from('fueling_logs')
+    .update({
+      intake_pattern: intakePattern,
+      carbs_g: carbsTotal != null ? Math.round(carbsTotal) : null,
+      carbs_g_per_hour: carbsPerHour,
+      products,
+      issue,
+      post_window_fed: postWindowFed,
+      notes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+  if (error) failWith(`Modification impossible : ${error.message}`)
+
+  revalidatePath('/fueling')
+  revalidatePath('/aujourdhui')
+  redirect('/fueling?ok=1')
+}
+
 export async function deleteFuelingLog(formData: FormData) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()

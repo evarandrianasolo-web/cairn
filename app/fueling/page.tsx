@@ -1,8 +1,10 @@
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { ScreenTitle } from '@/components/screen-title'
 import { formatDateCourte, formatDistance, formatDuree } from '@/lib/format'
 import { NewFuelingForm } from './new-fueling-form'
+import { EditFuelingForm } from './edit-fueling-form'
 import { deleteFuelingLog } from './actions'
 
 type FuelingLog = {
@@ -44,16 +46,14 @@ const LONG_SECS = 90 * 60
 export default async function FuelingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ erreur?: string; ok?: string }>
+  searchParams: Promise<{ erreur?: string; ok?: string; edit?: string }>
 }) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { erreur } = await searchParams
+  const { erreur, edit: editingId } = await searchParams
 
-  // Sélectionne les 20 séances les plus récentes qualifiées de « longues »
-  // pour proposer un log de fueling. Seuil : 90 min de moving time.
   const { data: candidateActivities } = await supabase
     .from('activities')
     .select('id, name, sport_type, started_at, distance_m, moving_time_s')
@@ -85,9 +85,10 @@ export default async function FuelingPage({
         </p>
       )}
 
-      {activities.length > 0 ? (
+      {!editingId && activities.length > 0 && (
         <NewFuelingForm activities={activities} />
-      ) : (
+      )}
+      {!editingId && activities.length === 0 && (
         <p className="text-base text-granit">
           Toutes tes sorties longues récentes sont déjà loggées, ou tu n&apos;en as pas
           eu ces derniers jours. Un fueling se logge après une séance de plus de
@@ -101,9 +102,15 @@ export default async function FuelingPage({
             Historique
           </h2>
           <ul className="mt-3 space-y-2">
-            {(logs as unknown as FuelingLog[]).map((l) => (
-              <LogItem key={l.id} log={l} />
-            ))}
+            {(logs as unknown as FuelingLog[]).map((l) =>
+              l.id === editingId ? (
+                <li key={l.id}>
+                  <EditFuelingForm log={l} />
+                </li>
+              ) : (
+                <LogItem key={l.id} log={l} />
+              ),
+            )}
           </ul>
         </section>
       )}
@@ -126,7 +133,7 @@ function LogItem({ log }: { log: FuelingLog }) {
               {formatDuree(activity.moving_time_s)}
             </p>
           ) : (
-            <p className="text-base text-granit italic">séance supprimée</p>
+            <p className="text-base italic text-granit">séance supprimée</p>
           )}
 
           <p className="mt-1 text-sm text-schiste">
@@ -156,16 +163,24 @@ function LogItem({ log }: { log: FuelingLog }) {
           )}
         </div>
 
-        <form action={deleteFuelingLog}>
-          <input type="hidden" name="id" value={log.id} />
-          <button
-            type="submit"
-            aria-label="Supprimer"
-            className="text-granit hover:text-schiste"
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/fueling?edit=${log.id}`}
+            className="text-xs text-granit hover:text-schiste"
           >
-            ×
-          </button>
-        </form>
+            modifier
+          </Link>
+          <form action={deleteFuelingLog}>
+            <input type="hidden" name="id" value={log.id} />
+            <button
+              type="submit"
+              aria-label="Supprimer"
+              className="text-granit hover:text-schiste"
+            >
+              ×
+            </button>
+          </form>
+        </div>
       </div>
     </li>
   )
