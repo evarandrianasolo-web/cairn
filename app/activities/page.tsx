@@ -29,7 +29,7 @@ export default async function ActivitiesPage({
   const { data: activities, count } = await supabase
     .from('activities')
     .select(
-      'id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km',
+      'id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km, user_notes',
       { count: 'exact' },
     )
     .order('started_at', { ascending: false })
@@ -72,25 +72,47 @@ export default async function ActivitiesPage({
               </thead>
               <tbody>
                 {activities?.map((a) => (
-                  <tr key={a.id} className="border-t border-brume">
+                  <tr
+                    key={a.id}
+                    className="border-t border-brume hover:bg-brume/40"
+                  >
                     <td className="whitespace-nowrap px-3 py-2 tabular text-schiste">
-                      {formatDateCourte(a.started_at)}
+                      <Link href={`/activities/${a.id}`} className="block">
+                        {formatDateCourte(a.started_at)}
+                      </Link>
                     </td>
-                    <td className="px-3 py-2 text-granit">{a.sport_type ?? '—'}</td>
+                    <td className="px-3 py-2 text-granit">
+                      <Link href={`/activities/${a.id}`} className="block">
+                        {a.sport_type ?? '—'}
+                      </Link>
+                    </td>
                     <td className="max-w-xs truncate px-3 py-2 text-schiste">
-                      {a.name ?? '—'}
+                      <Link href={`/activities/${a.id}`} className="block">
+                        {a.name ?? '—'}
+                        {a.user_notes && (
+                          <span className="ml-2 text-xs text-granit">✎</span>
+                        )}
+                      </Link>
                     </td>
                     <td className="px-3 py-2 tabular text-right text-schiste">
-                      {formatDistance(a.distance_m)}
+                      <Link href={`/activities/${a.id}`} className="block">
+                        {formatDistance(a.distance_m)}
+                      </Link>
                     </td>
                     <td className="px-3 py-2 tabular text-right text-schiste">
-                      {formatDplus(a.elevation_gain_m)}
+                      <Link href={`/activities/${a.id}`} className="block">
+                        {formatDplus(a.elevation_gain_m)}
+                      </Link>
                     </td>
                     <td className="px-3 py-2 tabular text-right text-schiste">
-                      {formatDuree(a.moving_time_s)}
+                      <Link href={`/activities/${a.id}`} className="block">
+                        {formatDuree(a.moving_time_s)}
+                      </Link>
                     </td>
                     <td className="px-3 py-2 tabular text-right text-schiste">
-                      {formatAllure(a.avg_pace_s_per_km)}
+                      <Link href={`/activities/${a.id}`} className="block">
+                        {formatAllure(a.avg_pace_s_per_km)}
+                      </Link>
                     </td>
                   </tr>
                 ))}
