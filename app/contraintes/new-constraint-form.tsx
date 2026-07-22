@@ -15,7 +15,7 @@ type ConstraintType =
   | 'blessure'
   | 'travail'
   | 'autre'
-type Impact = 'bloque' | 'allege' | 'decale'
+type Impact = 'bloque' | 'allege' | 'decale' | 'oriente'
 
 const TYPES: { code: ConstraintType; label: string }[] = [
   { code: 'club', label: 'Club' },
@@ -32,6 +32,7 @@ const IMPACTS: { code: Impact; label: string; hint: string }[] = [
   { code: 'bloque', label: 'Bloque', hint: 'aucune séance possible' },
   { code: 'allege', label: 'Allège', hint: 'séance courte ou douce' },
   { code: 'decale', label: 'Décale', hint: 'à déplacer' },
+  { code: 'oriente', label: 'Oriente', hint: 'pas de blocage, préférence de contenu' },
 ]
 
 const FREQUENCIES: { code: Frequency; label: string }[] = [
@@ -120,9 +121,9 @@ export function NewConstraintForm() {
           </select>
         </label>
 
-        <div className="flex flex-col gap-1">
+        <div className="col-span-2 flex flex-col gap-1">
           <span className="text-xs text-granit">Impact</span>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {IMPACTS.map((i) => {
               const actif = impact === i.code
               return (
@@ -147,6 +148,20 @@ export function NewConstraintForm() {
           </p>
           <input type="hidden" name="impact" value={impact} />
         </div>
+
+        <label className="col-span-2 flex flex-col gap-1">
+          <span className="text-xs text-granit">
+            Orientation <span className="text-granit/60">
+              — préférence de contenu, optionnel
+            </span>
+          </span>
+          <input
+            name="focus"
+            type="text"
+            placeholder="randos privilégiées · pas de D+ · focus vitesse"
+            className="rounded-data border border-granit/35 bg-craie px-2 py-1.5 text-base text-schiste focus:border-schiste focus:outline-none"
+          />
+        </label>
       </div>
 
       {kind === 'recurrente' ? (

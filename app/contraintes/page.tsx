@@ -10,11 +10,12 @@ type Constraint = {
   label: string
   kind: 'recurrente' | 'ponctuelle'
   type: string
-  impact: 'bloque' | 'allege' | 'decale'
+  impact: 'bloque' | 'allege' | 'decale' | 'oriente'
   recurrence_rule: string | null
   starts_on: string | null
   ends_on: string | null
   notes: string | null
+  focus: string | null
 }
 
 export default async function ContraintesPage({
@@ -30,7 +31,9 @@ export default async function ContraintesPage({
 
   const { data: constraints } = await supabase
     .from('constraints')
-    .select('id, label, kind, type, impact, recurrence_rule, starts_on, ends_on, notes')
+    .select(
+      'id, label, kind, type, impact, recurrence_rule, starts_on, ends_on, notes, focus',
+    )
     .order('kind', { ascending: true })
     .order('starts_on', { ascending: true, nullsFirst: false })
 
@@ -116,6 +119,9 @@ function ConstraintItem({ c }: { c: Constraint }) {
         <div className="flex-1">
           <p className="text-base text-schiste">{c.label}</p>
           <p className="tabular text-xs text-granit">{when}</p>
+          {c.focus && (
+            <p className="mt-1 text-xs italic text-schiste">→ {c.focus}</p>
+          )}
         </div>
         <ImpactBadge impact={c.impact} />
         <form action={deleteConstraint}>
@@ -136,8 +142,17 @@ function ConstraintItem({ c }: { c: Constraint }) {
   )
 }
 
-function ImpactBadge({ impact }: { impact: 'bloque' | 'allege' | 'decale' }) {
-  const label = { bloque: 'bloque', allege: 'allège', decale: 'décale' }[impact]
+function ImpactBadge({
+  impact,
+}: {
+  impact: 'bloque' | 'allege' | 'decale' | 'oriente'
+}) {
+  const label = {
+    bloque: 'bloque',
+    allege: 'allège',
+    decale: 'décale',
+    oriente: 'oriente',
+  }[impact]
   return (
     <span className="rounded-data border border-granit/35 px-2 py-0.5 text-xs text-granit">
       {label}

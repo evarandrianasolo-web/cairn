@@ -20,7 +20,7 @@ type ConstraintType =
   | 'blessure'
   | 'travail'
   | 'autre'
-type Impact = 'bloque' | 'allege' | 'decale'
+type Impact = 'bloque' | 'allege' | 'decale' | 'oriente'
 
 const KINDS: readonly Kind[] = ['recurrente', 'ponctuelle']
 const TYPES: readonly ConstraintType[] = [
@@ -33,7 +33,7 @@ const TYPES: readonly ConstraintType[] = [
   'travail',
   'autre',
 ]
-const IMPACTS: readonly Impact[] = ['bloque', 'allege', 'decale']
+const IMPACTS: readonly Impact[] = ['bloque', 'allege', 'decale', 'oriente']
 
 function pickEnum<T extends string>(
   raw: FormDataEntryValue | null,
@@ -61,6 +61,7 @@ export async function addConstraint(formData: FormData) {
   const type = pickEnum<ConstraintType>(formData.get('type'), TYPES, 'autre')
   const impact = pickEnum<Impact>(formData.get('impact'), IMPACTS, 'bloque')
   const notes = String(formData.get('notes') ?? '').trim() || null
+  const focus = String(formData.get('focus') ?? '').trim() || null
 
   let recurrenceRule: string | null = null
   let startsOn: string | null = null
@@ -110,6 +111,7 @@ export async function addConstraint(formData: FormData) {
     starts_on: startsOn,
     ends_on: endsOn,
     notes,
+    focus,
   })
   if (error) failWith(`Enregistrement impossible : ${error.message}`)
 
