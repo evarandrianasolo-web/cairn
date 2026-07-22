@@ -179,11 +179,20 @@ describe('Code applicatif — anti-patterns', () => {
       return e.isDirectory() ? walk(p) : p.match(/\.(ts|tsx)$/) ? [p] : []
     })
 
+  // Retire les commentaires TypeScript de ligne (//) et de bloc (/* */)
+  // avant d'y chercher un anti-pattern. Une règle qui rejetterait son propre
+  // énoncé dans un commentaire est fragile — un test robuste ne lit que le
+  // code réel. Même principe que pour les commentaires SQL plus haut.
+  const stripComments = (src: string): string =>
+    src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
+
   it("aucun filtrage d'isolation en couche applicative", () => {
     const offenders = walk(join(process.cwd(), 'app'))
       .concat(walk(join(process.cwd(), 'lib')))
       .filter((f) => !f.includes('/tests/'))
-      .filter((f) => /\.eq\(\s*['"](tenant_id|user_id)['"]/.test(readFileSync(f, 'utf8')))
+      .filter((f) =>
+        /\.eq\(\s*['"](tenant_id|user_id)['"]/.test(stripComments(readFileSync(f, 'utf8'))),
+      )
     expect(offenders).toEqual([])
   })
 
