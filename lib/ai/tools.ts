@@ -1,8 +1,193 @@
 /**
- * Outils du coach — implémentés en P2, tenant_id jamais en paramètre.
+ * Outils exposes au coach IA.
  *
- * Le tenant provient TOUJOURS de la session serveur authentifiée, jamais
- * d'un argument fourni par le modèle. Voir CLAUDE.md § Isolation jusqu'à
- * la couche IA.
+ * Regle absolue (CLAUDE.md § Isolation jusqu'a la couche IA) :
+ * le tenant vient TOUJOURS de la session serveur authentifiee -- il
+ * n'apparait JAMAIS dans un input_schema. Si un tool a besoin de scoper
+ * une lecture, il utilise le client Supabase authentifie passe en second
+ * argument du handler, et laisse la RLS filtrer.
+ *
+ * Regle sante (CLAUDE.md § Donnees de sante) :
+ * aucun handler ne renvoie de valeur brute de FC. Seules des donnees
+ * derivees (drapeau, tendance) peuvent transiter -- V1 : rien.
  */
-export const coachTools = [] as const
+
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type Anthropic from '@anthropic-ai/sdk'
+import {
+  formatAllure,
+  formatDateCourte,
+  formatDistance,
+  formatDplus,
+  formatDuree,
+} from '@/lib/format'
+
+// ---------- Definitions envoyees a l'API ----------
+
+export const coachTools: Anthropic.Tool[] = [
+  {
+    name: 'get_activity_detail',
+    description:
+      'Renvoie le detail complet d\'une activite d\'Eva : metriques precises, notes personnelles, fueling log associe et debrief lie a la course si applicable. Utilise ce tool quand Eva mentionne une seance specifique (par sa date, son nom, ou son emplacement dans la liste) et que le resume du contexte ne suffit pas. Ne renvoie aucune donnee de frequence cardiaque.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        activity_id: {
+          type: 'string',
+          description:
+            'UUID de l\'activite. Recuperable via les 10 dernieres seances listees dans le contexte (le premier segment de la ligne, ou par recherche sur date/nom si l\'utilisateur le fournit).',
+        },
+      },
+      required: ['activity_id'],
+    },
+  },
+]
+
+// ---------- Dispatcher ----------
+
+type ToolHandler = (
+  input: unknown,
+  supabase: SupabaseClient,
+) => Promise<unknown>
+
+const handlers: Record<string, ToolHandler> = {
+  get_activity_detail: handleGetActivityDetail,
+}
+
+/**
+ * Execute un tool call reclame par le modele. Retourne le contenu texte
+ * a mettre dans le block tool_result. En cas d'erreur, on renvoie un
+ * objet {error} plutot que de throw : le modele saura reagir.
+ */
+export async function runTool(
+  name: string,
+  input: unknown,
+  supabase: SupabaseClient,
+): Promise<string> {
+  const handler = handlers[name]
+  if (!handler) {
+    return JSON.stringify({ error: `tool inconnu: ${name}` })
+  }
+  try {
+    const result = await handler(input, supabase)
+    return JSON.stringify(result)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return JSON.stringify({ error: msg })
+  }
+}
+
+// ---------- Handlers ----------
+
+async function handleGetActivityDetail(
+  input: unknown,
+  supabase: SupabaseClient,
+): Promise<unknown> {
+  if (typeof input !== 'object' || input === null || !('activity_id' in input)) {
+    return { error: 'activity_id manquant' }
+  }
+  const activityId = String((input as { activity_id: unknown }).activity_id)
+  if (!/^[0-9a-fA-F-]{36}$/.test(activityId)) {
+    return { error: 'activity_id doit etre un UUID' }
+  }
+
+  const { data: activity, error } = await supabase
+    .from('activities')
+    .select(
+      'id, name, sport_type, started_at, distance_m, elevation_gain_m, moving_time_s, elapsed_time_s, avg_pace_s_per_km, avg_cadence, user_notes, race_id',
+    )
+    .eq('id', activityId)
+    .maybeSingle()
+  if (error) return { error: `lecture activite : ${error.message}` }
+  if (!activity) return { error: 'activite introuvable' }
+
+  const [{ data: fueling }, raceRes] = await Promise.all([
+    supabase
+      .from('fueling_logs')
+      .select(
+        'intake_pattern, carbs_g, carbs_g_per_hour, products, issue, post_window_fed, notes',
+      )
+      .eq('activity_id', activity.id)
+      .maybeSingle(),
+    activity.race_id
+      ? supabase
+          .from('races')
+          .select(
+            'id, name, race_date, priority, distance_m, elevation_gain_m, goal_time_s, result_time_s, location',
+          )
+          .eq('id', activity.race_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ])
+
+  let debrief = null
+  if (activity.race_id) {
+    const { data } = await supabase
+      .from('debriefs')
+      .select('kind, narrative, what_worked, what_failed, focus_areas, created_at')
+      .eq('race_id', activity.race_id)
+      .maybeSingle()
+    debrief = data
+  }
+
+  const race = raceRes.data as
+    | {
+        name: string
+        race_date: string
+        priority: string
+        distance_m: number | null
+        elevation_gain_m: number | null
+        goal_time_s: number | null
+        result_time_s: number | null
+        location: string | null
+      }
+    | null
+
+  return {
+    id: activity.id,
+    date: activity.started_at,
+    date_courte: formatDateCourte(activity.started_at),
+    name: activity.name,
+    sport_type: activity.sport_type,
+    distance: formatDistance(activity.distance_m),
+    elevation: formatDplus(activity.elevation_gain_m),
+    moving_time: formatDuree(activity.moving_time_s),
+    elapsed_time: formatDuree(activity.elapsed_time_s),
+    avg_pace: formatAllure(activity.avg_pace_s_per_km),
+    avg_cadence: activity.avg_cadence,
+    user_notes: activity.user_notes,
+    race: race
+      ? {
+          name: race.name,
+          date: race.race_date,
+          priority: race.priority,
+          distance: formatDistance(race.distance_m),
+          elevation: formatDplus(race.elevation_gain_m),
+          location: race.location,
+          goal_time: race.goal_time_s ? formatDuree(race.goal_time_s) : null,
+          result_time: race.result_time_s ? formatDuree(race.result_time_s) : null,
+        }
+      : null,
+    fueling: fueling
+      ? {
+          intake_pattern: fueling.intake_pattern,
+          carbs_g_per_hour: fueling.carbs_g_per_hour,
+          carbs_g_total: fueling.carbs_g,
+          products:
+            (fueling.products as { text?: string } | null)?.text ?? null,
+          issue: fueling.issue,
+          post_window_fed: fueling.post_window_fed,
+          notes: fueling.notes,
+        }
+      : null,
+    debrief: debrief
+      ? {
+          kind: debrief.kind,
+          narrative: debrief.narrative,
+          what_worked: debrief.what_worked,
+          what_failed: debrief.what_failed,
+          focus_areas: debrief.focus_areas,
+        }
+      : null,
+  }
+}

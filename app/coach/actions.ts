@@ -7,6 +7,9 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { anthropic, COACH_MODEL } from '@/lib/ai/anthropic'
 import { COACH_SYSTEM } from '@/lib/ai/prompts'
 import { buildCoachContext } from '@/lib/ai/context'
+import { coachTools, runTool } from '@/lib/ai/tools'
+
+const MAX_TOOL_ITERATIONS = 5
 
 type StoredMessage = {
   role: 'user' | 'assistant' | 'system'
@@ -91,25 +94,62 @@ export async function sendMessage(formData: FormData): Promise<void> {
     })),
   ]
 
-  // 5. Appel Anthropic — Opus 4.8, adaptive thinking, effort high.
+  // 5. Boucle appel Anthropic + tool_use.
+  //    Chaque iteration : appel API -> si stop_reason=tool_use, executer
+  //    les tools et repartir avec les tool_results. Le tenant vient de
+  //    `supabase` (session serveur), jamais des arguments du modele.
   let assistantText = ''
   let tokensIn = 0
   let tokensOut = 0
   try {
-    const response = await anthropic().messages.create({
-      model: COACH_MODEL,
-      max_tokens: 16000,
-      system: COACH_SYSTEM,
-      thinking: { type: 'adaptive' },
-      output_config: { effort: 'high' },
-      messages: apiMessages,
-    })
-    for (const block of response.content) {
-      if (block.type === 'text') assistantText += block.text
+    for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
+      const response = await anthropic().messages.create({
+        model: COACH_MODEL,
+        max_tokens: 16000,
+        system: COACH_SYSTEM,
+        thinking: { type: 'adaptive' },
+        output_config: { effort: 'high' },
+        tools: coachTools,
+        messages: apiMessages,
+      })
+      tokensIn += response.usage.input_tokens
+      tokensOut += response.usage.output_tokens
+
+      // On concatene tout le texte des blocs -- meme si un tool_use suit
+      // et qu'on repart pour un tour, le raisonnement intermediaire ne
+      // se perd pas (mais on ne l'affiche pas ; V1 pragmatique).
+      let iterationText = ''
+      const toolUses: Anthropic.ToolUseBlock[] = []
+      for (const block of response.content) {
+        if (block.type === 'text') iterationText += block.text
+        else if (block.type === 'tool_use') toolUses.push(block)
+      }
+
+      if (response.stop_reason !== 'tool_use' || toolUses.length === 0) {
+        assistantText = iterationText || '(Aucune réponse texte reçue.)'
+        break
+      }
+
+      // On execute chaque tool_use, on ajoute la reponse assistant (avec
+      // ses blocks tool_use) + les tool_results en tant que user block.
+      apiMessages.push({ role: 'assistant', content: response.content })
+      const toolResultBlocks: Anthropic.ToolResultBlockParam[] = []
+      for (const use of toolUses) {
+        const resultStr = await runTool(use.name, use.input, supabase)
+        toolResultBlocks.push({
+          type: 'tool_result',
+          tool_use_id: use.id,
+          content: resultStr,
+        })
+      }
+      apiMessages.push({ role: 'user', content: toolResultBlocks })
+
+      if (iter === MAX_TOOL_ITERATIONS - 1) {
+        assistantText =
+          iterationText ||
+          `(Limite de ${MAX_TOOL_ITERATIONS} appels d'outils atteinte sans réponse finale.)`
+      }
     }
-    tokensIn = response.usage.input_tokens
-    tokensOut = response.usage.output_tokens
-    if (!assistantText) assistantText = '(Aucune réponse texte reçue.)'
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     await supabase.from('coach_messages').insert({

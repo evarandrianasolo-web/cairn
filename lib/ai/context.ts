@@ -55,10 +55,11 @@ export async function buildCoachContext(
       .gte('started_at', since12w.toISOString())
       .order('started_at', { ascending: false }),
     // Les 10 plus récentes détaillées (peuvent recouper les précédentes,
-    // mais on garde le nom et l'allure ici).
+    // mais on garde le nom, l'allure et l'id pour permettre au tool
+    // get_activity_detail de creuser.
     supabase
       .from('activities')
-      .select('started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km')
+      .select('id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km')
       .order('started_at', { ascending: false })
       .limit(RECENT_DETAILED),
     supabase
@@ -153,13 +154,16 @@ export async function buildCoachContext(
 
   if (recent.length > 0) {
     lines.push(`## ${recent.length} dernières séances`)
+    lines.push(
+      `(id entre crochets → utilisable via get_activity_detail(activity_id))`,
+    )
     for (const a of recent) {
       const paceStr =
         a.avg_pace_s_per_km && a.avg_pace_s_per_km > 0
           ? ` · ${Math.floor(a.avg_pace_s_per_km / 60)}:${String(Math.round(a.avg_pace_s_per_km % 60)).padStart(2, '0')}/km`
           : ''
       lines.push(
-        `- ${formatDateCourte(a.started_at)} · ${a.sport_type ?? '—'} · ` +
+        `- [${a.id}] ${formatDateCourte(a.started_at)} · ${a.sport_type ?? '—'} · ` +
           `${formatDistance(a.distance_m)} · ${formatDplus(a.elevation_gain_m)} · ` +
           `${formatDuree(a.moving_time_s)}${paceStr}${a.name ? ` — ${a.name}` : ''}`,
       )
