@@ -101,33 +101,47 @@ export default async function PlanningPage({
 
       <section className="rounded-data border border-brume bg-craie p-4">
         <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
-          Semaine {nextIsoWeek} ·{' '}
+          À partir de la semaine {nextIsoWeek} ·{' '}
           <span className="tabular">
-            {formatDateCourte(nextMonday.toISOString())} →{' '}
-            {formatDateCourte(
-              new Date(nextMonday.getTime() + 6 * DAY_MS).toISOString(),
-            )}
+            {formatDateCourte(nextMonday.toISOString())}
           </span>
         </h2>
         <p className="mt-2 text-sm text-granit">
-          Le coach IA génère une semaine (lundi → dimanche) à partir de tes 4
-          dernières semaines, ta prochaine course A, tes contraintes actives
-          et tes derniers débriefs / logs fueling.
+          Le coach IA génère une à trois semaines consécutives (lundi →
+          dimanche) à partir de tes 4 dernières semaines, ta prochaine course
+          A, tes contraintes actives et tes derniers débriefs / logs fueling.
+          Les semaines déjà planifiées sont ignorées.
         </p>
         <form action={generatePlanWeek} className="mt-3 space-y-3">
           <input type="hidden" name="target_monday" value={targetMondayIso} />
           <textarea
             name="user_hint"
             rows={3}
-            placeholder="Notes pour cette semaine (facultatif) — ex : « repos vendredi, sortie longue samedi 3h dans le Jura », « bloc côte », « fatigué, allègement »."
+            placeholder="Notes pour la période (facultatif) — ex : « repos vendredi, sortie longue samedi 3h dans le Jura », « bloc côte », « fatigué, allègement »."
             className="w-full rounded-data border border-granit/35 bg-craie px-3 py-2 text-sm text-schiste focus:border-schiste focus:outline-none"
           />
-          <button
-            type="submit"
-            className="rounded-surface bg-schiste px-4 py-2 text-sm font-medium text-craie"
-          >
-            Générer
-          </button>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-granit">
+                Nombre de semaines à générer
+              </span>
+              <select
+                name="weeks_count"
+                defaultValue="3"
+                className="rounded-data border border-granit/35 bg-craie px-2 py-1.5 text-base tabular text-schiste focus:border-schiste focus:outline-none"
+              >
+                <option value="1">1 semaine</option>
+                <option value="2">2 semaines</option>
+                <option value="3">3 semaines</option>
+              </select>
+            </label>
+            <button
+              type="submit"
+              className="rounded-surface bg-schiste px-4 py-2 text-sm font-medium text-craie"
+            >
+              Générer
+            </button>
+          </div>
         </form>
       </section>
 

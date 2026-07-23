@@ -53,28 +53,77 @@ export async function generatePlanWeek(formData: FormData): Promise<void> {
         encodeURIComponent('Semaine cible invalide.'),
     )
   }
-  const monday = new Date(targetMondayIso + 'T12:00:00Z')
+  const requestedCount = Math.max(
+    1,
+    Math.min(3, parseInt(String(formData.get('weeks_count') ?? '1'), 10) || 1),
+  )
+  const firstMonday = new Date(targetMondayIso + 'T12:00:00Z')
+  const userHint = String(formData.get('user_hint') ?? '').trim()
+
+  let generated = 0
+  let skipped = 0
+  const errors: string[] = []
+  let firstGeneratedId: string | null = null
+
+  for (let i = 0; i < requestedCount; i++) {
+    const monday = new Date(firstMonday.getTime() + i * 7 * DAY_MS)
+    const mondayIso = monday.toISOString().slice(0, 10)
+    try {
+      const result = await generateOneWeek(supabase, user.id, monday, mondayIso, userHint)
+      if (result === 'exists') {
+        skipped++
+      } else {
+        generated++
+        if (!firstGeneratedId) firstGeneratedId = result
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      errors.push(`S${isoWeekNumber(monday)} : ${msg}`)
+    }
+  }
+
+  revalidatePath('/planning')
+  revalidatePath('/aujourdhui')
+
+  if (errors.length > 0) {
+    redirect(
+      `/planning?erreur=` +
+        encodeURIComponent(`${generated} generees, ${errors.length} erreurs : ${errors.join(' ; ')}`),
+    )
+  }
+  if (generated === 0 && skipped > 0) {
+    redirect(
+      `/planning?erreur=` +
+        encodeURIComponent(`Toutes les ${skipped} semaines cibles existaient deja.`),
+    )
+  }
+  redirect(`/planning?generated=${generated}`)
+}
+
+/**
+ * Genere UNE semaine. Retourne l'id de la plan_week creee, ou 'exists'
+ * si la semaine cible existait deja.
+ */
+async function generateOneWeek(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  tenantId: string,
+  monday: Date,
+  targetMondayIso: string,
+  userHint: string,
+): Promise<string | 'exists'> {
   const isoWeek = isoWeekNumber(monday)
   const isoYear = getIsoYear(monday)
 
-  // Refuse si la semaine existe deja (unique constraint plan_weeks).
   const { data: existing } = await supabase
     .from('plan_weeks')
     .select('id')
     .eq('iso_year', isoYear)
     .eq('iso_week', isoWeek)
     .maybeSingle()
-  if (existing) {
-    redirect(
-      `/planning?erreur=` +
-        encodeURIComponent(`La semaine ${isoWeek} existe deja.`),
-    )
-  }
+  if (existing) return 'exists'
 
-  const sunday = new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000)
+  const sunday = new Date(monday.getTime() + 6 * DAY_MS)
   const cible = `du ${dateFr(monday)} au ${dateFr(sunday)} (semaine ISO ${isoWeek}/${isoYear})`
-  const userHint = String(formData.get('user_hint') ?? '').trim()
-
   const sundayIso = sunday.toISOString().slice(0, 10)
   const constraintsBlock = await buildTargetWeekConstraintsBlock(
     supabase,
@@ -112,10 +161,7 @@ Propose une semaine coherente pour Eva. Reponds en JSON conforme au schema.`
     parsed = JSON.parse(text.text) as ProposedWeek
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    redirect(
-      `/planning?erreur=` +
-        encodeURIComponent(`Generation impossible : ${msg}`),
-    )
+    throw new Error(`Generation impossible : ${msg}`)
   }
 
   // Validation cote serveur : chaque session doit tomber dans la semaine.
@@ -135,7 +181,7 @@ Propose une semaine coherente pour Eva. Reponds en JSON conforme au schema.`
   const { data: planWeek, error: pwErr } = await supabase
     .from('plan_weeks')
     .insert({
-      tenant_id: user.id,
+      tenant_id: tenantId,
       iso_year: isoYear,
       iso_week: isoWeek,
       phase: parsed.phase,
@@ -151,7 +197,7 @@ Propose une semaine coherente pour Eva. Reponds en JSON conforme au schema.`
 
   if (validSessions.length > 0) {
     const rows = validSessions.map((s) => ({
-      tenant_id: user.id,
+      tenant_id: tenantId,
       plan_week_id: planWeek.id,
       scheduled_on: s.date,
       session_type: s.session_type,
@@ -167,7 +213,7 @@ Propose une semaine coherente pour Eva. Reponds en JSON conforme au schema.`
 
   // Audit : plan_revisions (CLAUDE.md § Plan -- toute modif IA journalisee).
   await supabase.from('plan_revisions').insert({
-    tenant_id: user.id,
+    tenant_id: tenantId,
     plan_week_id: planWeek.id,
     trigger: 'demande_utilisateur',
     author: 'ai',
@@ -175,9 +221,7 @@ Propose une semaine coherente pour Eva. Reponds en JSON conforme au schema.`
     diff: { created: parsed },
   })
 
-  revalidatePath('/planning')
-  revalidatePath('/aujourdhui')
-  redirect(`/planning?generated=${planWeek.id}`)
+  return planWeek.id
 }
 
 /**
