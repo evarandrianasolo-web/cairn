@@ -154,6 +154,33 @@ export default async function ActivityDetailPage({
 
       <section>
         <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
+          Mes notes
+        </h2>
+        <form action={updateActivityNotes} className="mt-3">
+          <input type="hidden" name="id" value={activity.id} />
+          <textarea
+            name="user_notes"
+            rows={5}
+            defaultValue={activity.user_notes ?? ''}
+            placeholder="Sensations, ravitos, ce qui a marché ou pas. Ces notes servent à proposer un débrief et un log de fueling ci-dessous."
+            className="w-full rounded-data border border-granit/35 bg-craie px-3 py-2 text-base text-schiste focus:border-schiste focus:outline-none"
+          />
+          <div className="mt-3 flex items-center justify-between">
+            <p className="text-xs text-granit">
+              {ok === '1' ? 'Enregistré.' : ''}
+            </p>
+            <button
+              type="submit"
+              className="rounded-surface bg-schiste px-4 py-2 text-sm font-medium text-craie"
+            >
+              Enregistrer
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section>
+        <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
           Course
         </h2>
 
@@ -381,33 +408,6 @@ export default async function ActivityDetailPage({
             Séance de moins d&apos;1 h 30 — pas de log de fueling à cette échelle.
           </p>
         )}
-      </section>
-
-      <section>
-        <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
-          Mes notes
-        </h2>
-        <form action={updateActivityNotes} className="mt-3">
-          <input type="hidden" name="id" value={activity.id} />
-          <textarea
-            name="user_notes"
-            rows={5}
-            defaultValue={activity.user_notes ?? ''}
-            placeholder="Sensations, contexte, matériel, ce qui a marché ou pas. Indépendant de la description Strava — n'est jamais écrasé par un re-import."
-            className="w-full rounded-data border border-granit/35 bg-craie px-3 py-2 text-base text-schiste focus:border-schiste focus:outline-none"
-          />
-          <div className="mt-3 flex items-center justify-between">
-            <p className="text-xs text-granit">
-              {ok === '1' ? 'Enregistré.' : ''}
-            </p>
-            <button
-              type="submit"
-              className="rounded-surface bg-schiste px-4 py-2 text-sm font-medium text-craie"
-            >
-              Enregistrer
-            </button>
-          </div>
-        </form>
       </section>
 
       {stravaUrl && (
