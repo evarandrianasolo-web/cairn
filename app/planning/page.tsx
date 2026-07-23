@@ -11,7 +11,15 @@ import {
 import { isoWeekStart, isoWeekNumber, isoWeekMonday } from '@/lib/analytics'
 import { isRaceEligibleSport } from '@/lib/race-matching'
 import { IconFlag } from '@/components/icons'
+import { DeuxBarres } from '@/components/marks/deux-barres'
 import { deletePlanWeek, generatePlanWeek, readjustPlanWeek } from './actions'
+
+// Types consideres comme 'jalons' de la semaine : c'est autour d'eux
+// que se construit le reste (une LONGUE par semaine, une COURSE si
+// c'est une semaine de competition). La marque DeuxBarres (rouge
+// balise) signale visuellement 'sur l'itineraire' sans etre une
+// couleur d'erreur (cf. CLAUDE.md).
+const KEY_SESSION_TYPES = new Set(['longue', 'course'])
 
 // Session types de course a pied (non renfo, non rando) qui exigent une
 // activite Run/TrailRun pour etre consideres comme realises.
@@ -337,90 +345,106 @@ function WeekBlock({
         </div>
       )}
 
-      <ul className="mt-3 space-y-2">
+      <ul className="mt-3 space-y-3">
         {days.map(({ dateIso, sessions, activities, isPast, isToday }, i) => (
-          <li key={dateIso} className="border-t border-granit/10 pt-2 first:border-t-0 first:pt-0">
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="tabular w-24 text-xs text-granit">
-                <span
-                  className={
-                    'font-mono uppercase ' +
-                    (isToday ? 'text-schiste font-medium' : '')
-                  }
-                >
-                  {WEEKDAY_LABELS[i]}
-                </span>{' '}
-                {formatDateCourte(new Date(dateIso).toISOString())}
+          <li
+            key={dateIso}
+            className="border-t border-granit/10 pt-3 first:border-t-0 first:pt-0"
+          >
+            <div className="flex items-baseline gap-2 text-xs">
+              <span
+                className={
+                  'tabular font-mono uppercase ' +
+                  (isToday ? 'font-medium text-schiste' : 'text-granit')
+                }
+              >
+                {WEEKDAY_LABELS[i]} {formatDateCourte(new Date(dateIso).toISOString())}
               </span>
-              {sessions.length === 0 && activities.length === 0 ? (
-                <span className="flex-1 text-sm italic text-granit">repos</span>
-              ) : (
-                <div className="flex-1 space-y-1">
-                  {sessions.map((s) => (
-                    <div
-                      key={s.id}
-                      className="flex flex-wrap items-baseline gap-x-3 gap-y-1"
-                    >
-                      <span className="w-16 font-mono text-xs uppercase text-schiste">
-                        {SESSION_TYPE_LABEL[s.session_type] ?? s.session_type}
-                      </span>
-                      <span className="flex-1 text-sm text-schiste">
-                        {s.intent}
-                      </span>
-                      <span className="tabular text-xs text-granit">
-                        {s.target_duration_s ? formatDuree(s.target_duration_s) : '—'}
-                        {s.target_distance_m
-                          ? ` · ${formatDistance(s.target_distance_m)}`
-                          : ''}
-                        {s.target_elevation_m
-                          ? ` · ${formatDplus(s.target_elevation_m)}`
-                          : ''}
-                      </span>
-                      {s.is_club && (
-                        <span
-                          className="rounded-data border border-granit/35 px-1.5 py-0.5 font-mono text-xs uppercase text-granit"
-                          title="Séance imposée par le club"
-                        >
-                          club
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                  {activities.map((a) => (
-                    <div
-                      key={a.id}
-                      className="ml-16 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-granit"
-                    >
-                      <IconFlag className="shrink-0 text-lichen" title="réalisé" />
-                      <Link
-                        href={`/activities/${a.id}`}
-                        className="text-schiste hover:underline"
-                      >
-                        {a.name ?? a.sport_type ?? '—'}
-                      </Link>
-                      <span className="tabular">
-                        {formatDistance(a.distance_m)}
-                        {a.elevation_gain_m
-                          ? ` · ${formatDplus(a.elevation_gain_m)}`
-                          : ''}
-                        {a.moving_time_s
-                          ? ` · ${formatDuree(a.moving_time_s)}`
-                          : ''}
-                      </span>
-                    </div>
-                  ))}
-                  {isPast &&
-                    sessions.some((s) =>
-                      RUN_SESSION_TYPES.has(s.session_type) &&
-                      !activities.some((a) => isRaceEligibleSport(a.sport_type)),
-                    ) && (
-                      <p className="ml-16 text-xs italic text-ocre">
-                        aucune activité de course correspondante — séance manquée ?
-                      </p>
-                    )}
-                </div>
+              {isToday && (
+                <span className="rounded-data bg-schiste px-1.5 py-0.5 font-mono text-[10px] uppercase text-craie">
+                  auj.
+                </span>
               )}
             </div>
+            {sessions.length === 0 && activities.length === 0 ? (
+              <p className="mt-1 text-sm italic text-granit">repos</p>
+            ) : (
+              <div className="mt-1 space-y-2">
+                {sessions.map((s) => {
+                  const isKey = KEY_SESSION_TYPES.has(s.session_type)
+                  return (
+                    <div key={s.id} className="space-y-1">
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                        {isKey && (
+                          <span className="inline-flex items-center gap-1">
+                            <DeuxBarres size={14} />
+                          </span>
+                        )}
+                        <span
+                          className={
+                            'font-mono text-xs uppercase ' +
+                            (isKey ? 'text-balise font-medium' : 'text-schiste')
+                          }
+                        >
+                          {SESSION_TYPE_LABEL[s.session_type] ?? s.session_type}
+                        </span>
+                        {s.is_club && (
+                          <span
+                            className="rounded-data border border-granit/35 px-1.5 py-0.5 font-mono text-[10px] uppercase text-granit"
+                            title="Séance imposée par le club"
+                          >
+                            club
+                          </span>
+                        )}
+                        <span className="tabular ml-auto text-xs text-granit">
+                          {s.target_duration_s ? formatDuree(s.target_duration_s) : ''}
+                          {s.target_distance_m
+                            ? ` · ${formatDistance(s.target_distance_m)}`
+                            : ''}
+                          {s.target_elevation_m
+                            ? ` · ${formatDplus(s.target_elevation_m)}`
+                            : ''}
+                        </span>
+                      </div>
+                      <p className="text-sm text-schiste">{s.intent}</p>
+                    </div>
+                  )
+                })}
+                {activities.map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-granit"
+                  >
+                    <IconFlag className="shrink-0 text-lichen" title="réalisé" />
+                    <Link
+                      href={`/activities/${a.id}`}
+                      className="text-schiste hover:underline"
+                    >
+                      {a.name ?? a.sport_type ?? '—'}
+                    </Link>
+                    <span className="tabular ml-auto">
+                      {formatDistance(a.distance_m)}
+                      {a.elevation_gain_m
+                        ? ` · ${formatDplus(a.elevation_gain_m)}`
+                        : ''}
+                      {a.moving_time_s
+                        ? ` · ${formatDuree(a.moving_time_s)}`
+                        : ''}
+                    </span>
+                  </div>
+                ))}
+                {isPast &&
+                  sessions.some(
+                    (s) =>
+                      RUN_SESSION_TYPES.has(s.session_type) &&
+                      !activities.some((a) => isRaceEligibleSport(a.sport_type)),
+                  ) && (
+                    <p className="text-xs italic text-ocre">
+                      aucune activité de course correspondante — séance manquée ?
+                    </p>
+                  )}
+              </div>
+            )}
           </li>
         ))}
       </ul>
