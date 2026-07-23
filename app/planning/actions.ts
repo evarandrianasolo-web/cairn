@@ -12,6 +12,26 @@ import {
 } from '@/lib/ai/plan-week-generator'
 import { isoWeekStart, isoWeekNumber } from '@/lib/analytics'
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+type ConstraintForPlan = {
+  label: string
+  type: string | null
+  impact: string
+  focus: string | null
+  recurrence_rule: string | null
+  starts_on: string | null
+  ends_on: string | null
+  notes: string | null
+}
+
+const IMPACT_UPPER: Record<string, string> = {
+  bloque: 'BLOQUE',
+  allege: 'ALLEGE',
+  decale: 'DECALE',
+  oriente: 'ORIENTE',
+}
+
 /**
  * Genere une semaine du plan a partir du contexte + une cible ISO.
  * Persiste plan_weeks + planned_sessions + plan_revisions dans la
@@ -55,14 +75,20 @@ export async function generatePlanWeek(formData: FormData): Promise<void> {
   const cible = `du ${dateFr(monday)} au ${dateFr(sunday)} (semaine ISO ${isoWeek}/${isoYear})`
   const userHint = String(formData.get('user_hint') ?? '').trim()
 
+  const sundayIso = sunday.toISOString().slice(0, 10)
+  const constraintsBlock = await buildTargetWeekConstraintsBlock(
+    supabase,
+    targetMondayIso,
+    sundayIso,
+  )
   const context = await buildCoachContext(supabase)
   const hintBlock = userHint
     ? `\n## Notes d'Eva pour cette semaine\n${userHint}\n\nCes notes sont des consignes explicites : respecte-les tant qu'elles ne contredisent pas les regles non negociables.\n`
     : ''
   const userPrompt = `## Semaine a planifier
 ${cible}
-${hintBlock}
-## Contexte
+${constraintsBlock}${hintBlock}
+## Contexte general
 ${context}
 
 Propose une semaine coherente pour Eva. Reponds en JSON conforme au schema.`
@@ -226,4 +252,114 @@ function dateFr(d: Date): string {
     month: 'short',
     timeZone: 'UTC',
   })
+}
+
+/**
+ * Bloc dedie aux contraintes qui touchent la semaine cible. Distinct du
+ * resume general du contexte pour deux raisons :
+ * - focus verbatim mis en avant, avec un rappel qu'il est prioritaire ;
+ * - alerte explicite quand la recurrence est ambigue (INTERVAL > 1 sans
+ *   starts_on), pour que le coach ne suppose PAS que la contrainte ne
+ *   s'applique pas -- il doit demander a Eva de trancher via le champ
+ *   notes, ou par defaut respecter la contrainte pour la semaine cible.
+ */
+async function buildTargetWeekConstraintsBlock(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  mondayIso: string,
+  sundayIso: string,
+): Promise<string> {
+  const { data } = await supabase
+    .from('constraints')
+    .select(
+      'label, type, impact, focus, recurrence_rule, starts_on, ends_on, notes',
+    )
+    .or(
+      // Recurrentes non expirees
+      `and(recurrence_rule.not.is.null,or(starts_on.is.null,starts_on.lte.${sundayIso}),or(ends_on.is.null,ends_on.gte.${mondayIso})),` +
+        // Ponctuelles qui recoupent la fenetre
+        `and(recurrence_rule.is.null,starts_on.lte.${sundayIso},or(ends_on.is.null,ends_on.gte.${mondayIso}))`,
+    )
+  const rows = (data ?? []) as ConstraintForPlan[]
+  if (rows.length === 0) return ''
+
+  const lines: string[] = []
+  lines.push(`## Contraintes qui touchent la semaine cible`)
+  for (const c of rows) {
+    const impact = IMPACT_UPPER[c.impact] ?? c.impact
+    const cadenceInfo = describeCadenceForWindow(c, mondayIso, sundayIso)
+    const focusPart = c.focus ? ` — focus verbatim : « ${c.focus} »` : ''
+    const typePart = c.type ? ` [${c.type}]` : ''
+    lines.push(`- « ${c.label} »${typePart} (${impact}, ${cadenceInfo})${focusPart}`)
+    if (c.notes) lines.push(`  note : ${c.notes}`)
+  }
+  lines.push('')
+  lines.push(
+    `RESPECT ABSOLU du focus verbatim de chaque contrainte ci-dessus. Si tu ne peux pas concilier deux contraintes, privilegie la plus restrictive et mets une note dans notes_week.`,
+  )
+  lines.push('')
+  return lines.join('\n') + '\n'
+}
+
+function describeCadenceForWindow(
+  c: ConstraintForPlan,
+  mondayIso: string,
+  sundayIso: string,
+): string {
+  if (!c.recurrence_rule) {
+    if (c.starts_on && c.ends_on)
+      return `ponctuel ${c.starts_on} → ${c.ends_on}`
+    if (c.starts_on) return `ponctuel depuis ${c.starts_on}`
+    return 'ponctuel'
+  }
+  const parts = Object.fromEntries(
+    c.recurrence_rule
+      .replace(/^RRULE:/i, '')
+      .split(';')
+      .map((p) => p.split('=') as [string, string]),
+  )
+  const interval = parts.INTERVAL ? parseInt(parts.INTERVAL, 10) : 1
+  const byday = parts.BYDAY
+  const freq = parts.FREQ
+
+  const daysHuman = byday
+    ? byday
+        .split(',')
+        .map((d) => {
+          const m: Record<string, string> = {
+            MO: 'lundi',
+            TU: 'mardi',
+            WE: 'mercredi',
+            TH: 'jeudi',
+            FR: 'vendredi',
+            SA: 'samedi',
+            SU: 'dimanche',
+          }
+          return m[d] ?? d
+        })
+        .join(' + ')
+    : ''
+
+  if (freq === 'WEEKLY' && interval === 1) {
+    return daysHuman ? `chaque ${daysHuman}` : `chaque semaine`
+  }
+  if (freq === 'WEEKLY' && interval > 1) {
+    const base = daysHuman
+      ? `${daysHuman} une semaine sur ${interval}`
+      : `une semaine sur ${interval}`
+    if (!c.starts_on) {
+      return `${base} — ATTENTION : sans ancrage starts_on, l'alternance n'est pas calculable ; considere que la contrainte S'APPLIQUE cette semaine (semaine cible du ${mondayIso}) sauf indication contraire dans les notes d'Eva`
+    }
+    // Ancre : on peut calculer.
+    const anchor = new Date(c.starts_on + 'T12:00:00Z')
+    const target = new Date(mondayIso + 'T12:00:00Z')
+    const weeksSinceAnchor = Math.floor(
+      (target.getTime() - anchor.getTime()) / (7 * DAY_MS),
+    )
+    const applies = weeksSinceAnchor >= 0 && weeksSinceAnchor % interval === 0
+    return `${base} (ancree au ${c.starts_on}) — cette semaine cible : ${applies ? 'S\'APPLIQUE' : 'ne s\'applique PAS'}`
+  }
+  if (freq === 'MONTHLY') {
+    return interval === 1 ? 'chaque mois' : `tous les ${interval} mois`
+  }
+  return c.recurrence_rule
 }
