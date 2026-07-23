@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { ScreenTitle } from '@/components/screen-title'
@@ -8,6 +9,7 @@ import {
   formatDuree,
 } from '@/lib/format'
 import { isoWeekStart, isoWeekNumber } from '@/lib/analytics'
+import { IconFlag } from '@/components/icons'
 import { deletePlanWeek, generatePlanWeek } from './actions'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -31,6 +33,16 @@ const PHASE_LABEL: Record<string, string> = {
   affutage: 'affûtage',
   course: 'course',
   recup: 'récup',
+}
+
+type ActivityMatch = {
+  id: string
+  name: string | null
+  sport_type: string | null
+  started_at: string
+  distance_m: number | null
+  elevation_gain_m: number | null
+  moving_time_s: number | null
 }
 
 type PlanWeekRow = {
@@ -81,6 +93,32 @@ export default async function PlanningPage({
     .order('iso_week', { ascending: true })
 
   const rows = (weeks ?? []) as PlanWeekRow[]
+
+  // Fenetre englobante des semaines affichees pour rapatrier les
+  // activites qui les touchent : min(monday) -> max(sunday).
+  const activitiesByDate = new Map<string, ActivityMatch[]>()
+  if (rows.length > 0) {
+    const mondays = rows.map((w) => isoWeekMonday(w.iso_year, w.iso_week))
+    const minMonday = new Date(Math.min(...mondays.map((d) => d.getTime())))
+    const maxSunday = new Date(
+      Math.max(...mondays.map((d) => d.getTime())) + 6 * DAY_MS,
+    )
+    const { data: acts } = await supabase
+      .from('activities')
+      .select(
+        'id, name, sport_type, started_at, distance_m, elevation_gain_m, moving_time_s',
+      )
+      .gte('started_at', minMonday.toISOString())
+      .lte('started_at', new Date(maxSunday.getTime() + DAY_MS).toISOString())
+      .order('started_at', { ascending: true })
+    for (const a of (acts ?? []) as ActivityMatch[]) {
+      const key = a.started_at.slice(0, 10)
+      const list = activitiesByDate.get(key) ?? []
+      list.push(a)
+      activitiesByDate.set(key, list)
+    }
+  }
+  const todayIso = new Date().toISOString().slice(0, 10)
 
   return (
     <main className="mx-auto max-w-4xl space-y-6 p-6">
@@ -151,7 +189,12 @@ export default async function PlanningPage({
       ) : (
         <div className="space-y-4">
           {rows.map((w) => (
-            <WeekBlock key={w.id} week={w} />
+            <WeekBlock
+              key={w.id}
+              week={w}
+              activitiesByDate={activitiesByDate}
+              todayIso={todayIso}
+            />
           ))}
         </div>
       )}
@@ -173,10 +216,19 @@ function isoWeekMonday(isoYear: number, isoWeek: number): Date {
   return monday
 }
 
-function WeekBlock({ week }: { week: PlanWeekRow }) {
+function WeekBlock({
+  week,
+  activitiesByDate,
+  todayIso,
+}: {
+  week: PlanWeekRow
+  activitiesByDate: Map<string, ActivityMatch[]>
+  todayIso: string
+}) {
   const monday = isoWeekMonday(week.iso_year, week.iso_week)
   // On construit les 7 jours lundi -> dimanche ; chaque jour porte
-  // les 0..N seances qui tombent dessus (souvent 0 ou 1).
+  // les 0..N seances qui tombent dessus et les 0..N activites reelles
+  // rapportees depuis Strava.
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday)
     d.setUTCDate(monday.getUTCDate() + i)
@@ -184,7 +236,10 @@ function WeekBlock({ week }: { week: PlanWeekRow }) {
     const sessions = week.planned_sessions.filter(
       (s) => s.scheduled_on === dateIso,
     )
-    return { date: d, dateIso, sessions }
+    const activities = activitiesByDate.get(dateIso) ?? []
+    const isPast = dateIso < todayIso
+    const isToday = dateIso === todayIso
+    return { date: d, dateIso, sessions, activities, isPast, isToday }
   })
   return (
     <section className="rounded-data border border-brume bg-craie p-4">
@@ -220,52 +275,89 @@ function WeekBlock({ week }: { week: PlanWeekRow }) {
         <p className="mt-2 text-sm text-schiste italic">{week.notes}</p>
       )}
 
-      <ul className="mt-3 space-y-1">
-        {days.map(({ date, dateIso, sessions }, i) => (
-          <li
-            key={dateIso}
-            className="flex flex-wrap items-baseline gap-x-3 gap-y-1"
-          >
-            <span className="tabular w-24 text-xs text-granit">
-              <span className="font-mono uppercase">{WEEKDAY_LABELS[i]}</span>{' '}
-              {formatDateCourte(date.toISOString())}
-            </span>
-            {sessions.length === 0 ? (
-              <span className="flex-1 text-sm italic text-granit">repos</span>
-            ) : (
-              <div className="flex flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
-                {sessions.map((s) => (
-                  <div
-                    key={s.id}
-                    className="flex flex-1 flex-wrap items-baseline gap-x-3 gap-y-1"
-                  >
-                    <span className="w-16 font-mono text-xs uppercase text-schiste">
-                      {SESSION_TYPE_LABEL[s.session_type] ?? s.session_type}
-                    </span>
-                    <span className="flex-1 text-sm text-schiste">
-                      {s.intent}
-                    </span>
-                    <span className="tabular text-xs text-granit">
-                      {s.target_duration_s ? formatDuree(s.target_duration_s) : '—'}
-                      {s.target_distance_m
-                        ? ` · ${formatDistance(s.target_distance_m)}`
-                        : ''}
-                      {s.target_elevation_m
-                        ? ` · ${formatDplus(s.target_elevation_m)}`
-                        : ''}
-                    </span>
-                    {s.is_club && (
-                      <span
-                        className="rounded-data border border-granit/35 px-1.5 py-0.5 font-mono text-xs uppercase text-granit"
-                        title="Séance imposée par le club"
-                      >
-                        club
+      <ul className="mt-3 space-y-2">
+        {days.map(({ dateIso, sessions, activities, isPast, isToday }, i) => (
+          <li key={dateIso} className="border-t border-granit/10 pt-2 first:border-t-0 first:pt-0">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="tabular w-24 text-xs text-granit">
+                <span
+                  className={
+                    'font-mono uppercase ' +
+                    (isToday ? 'text-schiste font-medium' : '')
+                  }
+                >
+                  {WEEKDAY_LABELS[i]}
+                </span>{' '}
+                {formatDateCourte(new Date(dateIso).toISOString())}
+              </span>
+              {sessions.length === 0 && activities.length === 0 ? (
+                <span className="flex-1 text-sm italic text-granit">repos</span>
+              ) : (
+                <div className="flex-1 space-y-1">
+                  {sessions.map((s) => (
+                    <div
+                      key={s.id}
+                      className="flex flex-wrap items-baseline gap-x-3 gap-y-1"
+                    >
+                      <span className="w-16 font-mono text-xs uppercase text-schiste">
+                        {SESSION_TYPE_LABEL[s.session_type] ?? s.session_type}
                       </span>
+                      <span className="flex-1 text-sm text-schiste">
+                        {s.intent}
+                      </span>
+                      <span className="tabular text-xs text-granit">
+                        {s.target_duration_s ? formatDuree(s.target_duration_s) : '—'}
+                        {s.target_distance_m
+                          ? ` · ${formatDistance(s.target_distance_m)}`
+                          : ''}
+                        {s.target_elevation_m
+                          ? ` · ${formatDplus(s.target_elevation_m)}`
+                          : ''}
+                      </span>
+                      {s.is_club && (
+                        <span
+                          className="rounded-data border border-granit/35 px-1.5 py-0.5 font-mono text-xs uppercase text-granit"
+                          title="Séance imposée par le club"
+                        >
+                          club
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                  {activities.map((a) => (
+                    <div
+                      key={a.id}
+                      className="ml-16 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-granit"
+                    >
+                      <IconFlag className="shrink-0 text-lichen" title="réalisé" />
+                      <Link
+                        href={`/activities/${a.id}`}
+                        className="text-schiste hover:underline"
+                      >
+                        {a.name ?? a.sport_type ?? '—'}
+                      </Link>
+                      <span className="tabular">
+                        {formatDistance(a.distance_m)}
+                        {a.elevation_gain_m
+                          ? ` · ${formatDplus(a.elevation_gain_m)}`
+                          : ''}
+                        {a.moving_time_s
+                          ? ` · ${formatDuree(a.moving_time_s)}`
+                          : ''}
+                      </span>
+                    </div>
+                  ))}
+                  {isPast &&
+                    sessions.length > 0 &&
+                    activities.length === 0 &&
+                    !sessions.every((s) => s.session_type === 'renfo') && (
+                      <p className="ml-16 text-xs italic text-ocre">
+                        aucune activité correspondante — séance manquée ?
+                      </p>
                     )}
-                  </div>
-                ))}
-              </div>
-            )}
+                </div>
+              )}
+            </div>
           </li>
         ))}
       </ul>
