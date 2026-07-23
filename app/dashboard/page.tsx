@@ -406,7 +406,7 @@ function RaceHeader({
       <div className="font-mono text-[10px] uppercase tracking-wide text-granit">
         Cap sur
       </div>
-      <h2 className="font-display mt-1 text-2xl font-extrabold uppercase leading-tight tracking-[0.02em] text-schiste sm:text-3xl">
+      <h2 className="font-display mt-1 text-xl font-extrabold uppercase leading-tight tracking-[0.02em] text-schiste break-words sm:text-3xl">
         {race.name}
       </h2>
       <div className="mt-3 flex items-baseline justify-between border-t border-brume pt-3">

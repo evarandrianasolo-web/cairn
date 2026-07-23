@@ -348,11 +348,11 @@ function shortName(name: string): string {
 }
 
 const SESSION_TYPE_TITLE: Record<string, string> = {
-  endurance: 'ENDURANCE FONDAMENTALE',
+  endurance: 'ENDURANCE',
   seuil: 'SEUIL',
   vma: 'VMA',
   cote: 'CÔTES',
-  longue: 'SORTIE LONGUE',
+  longue: 'LONGUE',
   recup: 'RÉCUP',
   renfo: 'RENFO',
   rando: 'RANDO',
@@ -377,7 +377,7 @@ function MainCardView({ card }: { card: MainCard }) {
           Aujourd&apos;hui{p.isClub ? ' · club' : ''}
         </p>
         <h1
-          className="mt-1 font-display text-2xl font-extrabold uppercase leading-tight tracking-[0.03em] text-schiste"
+          className="mt-1 font-display text-xl sm:text-2xl font-extrabold uppercase leading-tight tracking-[0.02em] text-schiste break-words"
           style={DISPLAY_STYLE}
         >
           {title}
@@ -412,7 +412,7 @@ function MainCardView({ card }: { card: MainCard }) {
       <div className="mt-[46px] flex flex-col items-start gap-4">
         <DeuxBarres size={22} />
         <h1
-          className="font-display text-2xl font-extrabold uppercase leading-none tracking-[0.03em] text-schiste"
+          className="font-display text-xl sm:text-2xl font-extrabold uppercase leading-none tracking-[0.02em] text-schiste"
           style={DISPLAY_STYLE}
         >
           Rien à traiter
@@ -442,7 +442,7 @@ function MainCardView({ card }: { card: MainCard }) {
           Dernière séance
         </p>
         <h1
-          className="mt-1 font-display text-2xl font-extrabold uppercase leading-tight tracking-[0.03em] text-schiste"
+          className="mt-1 font-display text-xl sm:text-2xl font-extrabold uppercase leading-tight tracking-[0.02em] text-schiste break-words"
           style={DISPLAY_STYLE}
         >
           {a.name ?? '—'}

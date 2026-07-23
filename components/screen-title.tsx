@@ -10,7 +10,7 @@ export function ScreenTitle({ children, className = '' }: {
   return (
     <h1
       className={
-        'font-display text-xl font-extrabold uppercase leading-none tracking-[0.03em] text-schiste ' +
+        'font-display text-xl font-extrabold uppercase leading-tight tracking-[0.02em] text-schiste break-words ' +
         className
       }
       style={{ fontVariationSettings: "'wdth' 125" }}
