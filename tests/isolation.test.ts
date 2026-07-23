@@ -42,6 +42,7 @@ const TENANT_TABLES = [
   'coach_messages',
   'consent_records',
   'plan_revisions',
+  'ai_calls',
 ] as const
 
 let admin: SupabaseClient

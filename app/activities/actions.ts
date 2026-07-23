@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { anthropic, COACH_MODEL } from '@/lib/ai/anthropic'
+import { logAnthropicCall } from '@/lib/ai/metering'
 import { getValidAccessToken } from '@/lib/strava/tokens'
 import { getActivityDetail } from '@/lib/strava/api'
 import {
@@ -338,6 +339,9 @@ export async function proposeDebriefFromActivity(formData: FormData) {
       },
       messages: [{ role: 'user', content: userPrompt }],
     })
+    await logAnthropicCall(supabase, user.id, 'debrief-from-notes', COACH_MODEL, response.usage, {
+      activity_id: activityId,
+    })
     const textBlock = response.content.find((b) => b.type === 'text')
     if (!textBlock || textBlock.type !== 'text') {
       throw new Error('Réponse sans bloc texte')
@@ -447,6 +451,9 @@ export async function proposeFuelingFromActivity(formData: FormData) {
         format: { type: 'json_schema', schema: FUELING_SCHEMA },
       },
       messages: [{ role: 'user', content: userPrompt }],
+    })
+    await logAnthropicCall(supabase, user.id, 'fueling-from-notes', COACH_MODEL, response.usage, {
+      activity_id: activityId,
     })
     const textBlock = response.content.find((b) => b.type === 'text')
     if (!textBlock || textBlock.type !== 'text') {

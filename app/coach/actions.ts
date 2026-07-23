@@ -8,6 +8,7 @@ import { anthropic, COACH_MODEL } from '@/lib/ai/anthropic'
 import { COACH_SYSTEM } from '@/lib/ai/prompts'
 import { buildCoachContext } from '@/lib/ai/context'
 import { coachTools, runTool } from '@/lib/ai/tools'
+import { logAnthropicCall } from '@/lib/ai/metering'
 
 const MAX_TOOL_ITERATIONS = 5
 
@@ -150,6 +151,16 @@ export async function sendMessage(formData: FormData): Promise<void> {
           `(Limite de ${MAX_TOOL_ITERATIONS} appels d'outils atteinte sans réponse finale.)`
       }
     }
+    // Une seule ligne ai_calls par sendMessage, agregeant tous les
+    // appels (chaque iteration tool_use compte comme un appel API).
+    await logAnthropicCall(
+      supabase,
+      user.id,
+      'coach-chat',
+      COACH_MODEL,
+      { input_tokens: tokensIn, output_tokens: tokensOut },
+      { thread_id: threadId },
+    )
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     await supabase.from('coach_messages').insert({

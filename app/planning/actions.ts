@@ -12,6 +12,7 @@ import {
 } from '@/lib/ai/plan-week-generator'
 import { isoWeekStart, isoWeekNumber, isoWeekMonday } from '@/lib/analytics'
 import { phaseFor, PHASE_INTENT } from '@/lib/periodization'
+import { logAnthropicCall } from '@/lib/ai/metering'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -156,6 +157,10 @@ Propose une semaine coherente pour Eva. Reponds en JSON conforme au schema.`
         format: { type: 'json_schema', schema: PLAN_WEEK_SCHEMA },
       },
       messages: [{ role: 'user', content: userPrompt }],
+    })
+    await logAnthropicCall(supabase, tenantId, 'plan-generate', COACH_MODEL, response.usage, {
+      iso_year: isoYear,
+      iso_week: isoWeek,
     })
     const text = response.content.find((b) => b.type === 'text')
     if (!text || text.type !== 'text') {
@@ -374,6 +379,9 @@ Reponds en JSON conforme au schema.`
         format: { type: 'json_schema', schema: PLAN_WEEK_SCHEMA },
       },
       messages: [{ role: 'user', content: userPrompt }],
+    })
+    await logAnthropicCall(supabase, user.id, 'plan-readjust', COACH_MODEL, response.usage, {
+      plan_week_id: planWeekId,
     })
     const text = response.content.find((b) => b.type === 'text')
     if (!text || text.type !== 'text') {

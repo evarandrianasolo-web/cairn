@@ -38,7 +38,10 @@ const SECTIONS: NavSection[] = [
   },
   {
     title: 'Config',
-    items: [{ href: '/settings/strava', label: 'Strava', muted: true }],
+    items: [
+      { href: '/settings/strava', label: 'Strava', muted: true },
+      { href: '/settings/ai-usage', label: 'Coût IA', muted: true },
+    ],
   },
 ]
 
