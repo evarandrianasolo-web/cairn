@@ -78,8 +78,8 @@ export default async function PlanningPage({
     .select(
       'id, iso_year, iso_week, phase, target_distance_m, target_elevation_m, target_sessions, notes, target_race_id, planned_sessions(id, scheduled_on, session_type, intent, target_distance_m, target_elevation_m, target_duration_s, is_club, status)',
     )
-    .order('iso_year', { ascending: false })
-    .order('iso_week', { ascending: false })
+    .order('iso_year', { ascending: true })
+    .order('iso_week', { ascending: true })
 
   const rows = (weeks ?? []) as PlanWeekRow[]
 
