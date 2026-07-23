@@ -132,13 +132,14 @@ async function generateOneWeek(
     sundayIso,
   )
   const periodizationBlock = await buildPeriodizationBlock(supabase, targetMondayIso)
+  const activeAxesBlock = await buildActiveAxesBlock(supabase)
   const context = await buildCoachContext(supabase)
   const hintBlock = userHint
     ? `\n## Notes d'Eva pour cette semaine\n${userHint}\n\nCes notes sont des consignes explicites : respecte-les tant qu'elles ne contredisent pas les regles non negociables.\n`
     : ''
   const userPrompt = `## Semaine a planifier
 ${cible}
-${periodizationBlock}${constraintsBlock}${hintBlock}
+${activeAxesBlock}${periodizationBlock}${constraintsBlock}${hintBlock}
 ## Contexte general
 ${context}
 
@@ -337,6 +338,7 @@ export async function readjustPlanWeek(formData: FormData): Promise<void> {
     sundayIso,
   )
   const periodizationBlock = await buildPeriodizationBlock(supabase, mondayIso)
+  const activeAxesBlock = await buildActiveAxesBlock(supabase)
   const context = await buildCoachContext(supabase)
   const hintBlock = userHint
     ? `\n## Notes d'Eva pour ce reajustement\n${userHint}\n\nConsignes explicites : respecte-les tant qu'elles ne contredisent pas les regles non negociables.\n`
@@ -345,7 +347,7 @@ export async function readjustPlanWeek(formData: FormData): Promise<void> {
   const userPrompt = `## Semaine en cours a reajuster
 Semaine ISO ${pw.iso_week}/${pw.iso_year} · du ${mondayIso} au ${sundayIso} · aujourd'hui = ${todayIso}
 Phase actuelle : ${pw.phase}
-${periodizationBlock}${constraintsBlock}${hintBlock}
+${activeAxesBlock}${periodizationBlock}${constraintsBlock}${hintBlock}
 ## Ce qui a ete fait ou manque jusqu'a aujourd'hui
 ${doneLines.length > 0 ? doneLines.join('\n') : 'Rien de particulier.'}
 
@@ -538,6 +540,47 @@ function dateFr(d: Date): string {
     month: 'short',
     timeZone: 'UTC',
   })
+}
+
+/**
+ * Bloc axes actifs : extrait les focus_areas du dernier debrief pour
+ * les mettre en avant separement du contexte general. Les axes portent
+ * l'apprentissage de la course precedente et doivent orienter chaque
+ * generation -- sans quoi les debriefs restent des ecritures mortes.
+ * Le coach est explicitement invite a citer les axes travailles dans
+ * notes_week ou dans les intents des seances.
+ */
+async function buildActiveAxesBlock(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+): Promise<string> {
+  const { data } = await supabase
+    .from('debriefs')
+    .select('focus_areas, race:races(name), period_start')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!data) return ''
+  const raw = (data as { focus_areas?: unknown }).focus_areas
+  const axes = Array.isArray(raw)
+    ? raw.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    : []
+  if (axes.length === 0) return ''
+  const rawRace = (data as unknown as { race?: { name: string } | { name: string }[] | null }).race
+  const race = Array.isArray(rawRace) ? rawRace[0] ?? null : rawRace
+  const period = (data as unknown as { period_start?: string | null }).period_start
+  const source = race?.name ?? (period ? `bloc ${period}` : 'dernier debrief')
+
+  const lines: string[] = []
+  lines.push(`## Axes actifs du dernier debrief (${source})`)
+  axes.slice(0, 5).forEach((axis, i) => {
+    lines.push(`${i + 1}. ${axis}${i === 0 ? ' — PRIORITE' : ''}`)
+  })
+  lines.push('')
+  lines.push(
+    `Ces axes portent ce qu'Eva doit travailler. AU MOINS UNE seance de la semaine doit adresser l'axe 1 (priorite). Cite explicitement dans notes_week quels axes tu travailles cette semaine.`,
+  )
+  lines.push('')
+  return lines.join('\n') + '\n'
 }
 
 /**

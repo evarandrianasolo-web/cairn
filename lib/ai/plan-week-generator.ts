@@ -13,6 +13,7 @@ Regles non negociables :
 - Une seule sortie longue par semaine (samedi ou dimanche, selon course a venir).
 - Un jour de repos complet par semaine minimum -- utilise session_type "recup" pour un footing tres doux, ou n'ajoute simplement rien pour du repos total.
 - Progressivite raisonnable vs la moyenne des 4 dernieres semaines (+/- 10 a 15 % de charge, sauf indication contraire).
+- Si un bloc 'Axes actifs' est fourni : au moins UNE seance de la semaine doit adresser l'axe 1 (priorite), et notes_week doit citer explicitement quels axes tu travailles. Un axe qui parle de renfo -> place un renfo cette semaine. Un axe fueling -> intent qui teste des grammes ou une texture. Un axe descente -> une seance cote / descente.
 
 Choix des types (enum session_type) :
 - endurance : footing EF, allure conversationnelle, 45-90 min
