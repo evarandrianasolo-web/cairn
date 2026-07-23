@@ -9,8 +9,21 @@ import {
   formatDuree,
 } from '@/lib/format'
 import { isoWeekStart, isoWeekNumber, isoWeekMonday } from '@/lib/analytics'
+import { isRaceEligibleSport } from '@/lib/race-matching'
 import { IconFlag } from '@/components/icons'
 import { deletePlanWeek, generatePlanWeek, readjustPlanWeek } from './actions'
+
+// Session types de course a pied (non renfo, non rando) qui exigent une
+// activite Run/TrailRun pour etre consideres comme realises.
+const RUN_SESSION_TYPES = new Set([
+  'endurance',
+  'seuil',
+  'vma',
+  'cote',
+  'longue',
+  'recup',
+  'course',
+])
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -225,6 +238,23 @@ function WeekBlock({
     .slice(0, 10)
   const mondayIso = monday.toISOString().slice(0, 10)
   const isInProgress = todayIso >= mondayIso && todayIso <= sundayIso
+
+  // Detection : combien de seances de jours passes n'ont eu aucune
+  // activite correspondante ? Le renfo est ignore car souvent fait sans
+  // Strava. Seuil de declenchement du chip : au moins 1.
+  const missedCount = isInProgress
+    ? week.planned_sessions.filter((s) => {
+        if (s.scheduled_on >= todayIso) return false
+        if (s.session_type === 'renfo') return false
+        const acts = activitiesByDate.get(s.scheduled_on) ?? []
+        // Une seance de course a pied n'est pas 'realisee' par un renfo
+        // ou une rando -- on exige une activite Run/TrailRun.
+        if (RUN_SESSION_TYPES.has(s.session_type)) {
+          return !acts.some((a) => isRaceEligibleSport(a.sport_type))
+        }
+        return acts.length === 0
+      }).length
+    : 0
   // On construit les 7 jours lundi -> dimanche ; chaque jour porte
   // les 0..N seances qui tombent dessus et les 0..N activites reelles
   // rapportees depuis Strava.
@@ -286,6 +316,25 @@ function WeekBlock({
 
       {week.notes && (
         <p className="mt-2 text-sm text-schiste italic">{week.notes}</p>
+      )}
+
+      {missedCount > 0 && (
+        <div className="mt-3 flex items-center gap-3 rounded-data border border-ocre/40 bg-craie px-3 py-2 text-sm text-ocre">
+          <span className="flex-1">
+            {missedCount} séance{missedCount > 1 ? 's' : ''} passée
+            {missedCount > 1 ? 's' : ''} sans activité correspondante. Réajuster
+            la suite ?
+          </span>
+          <form action={readjustPlanWeek}>
+            <input type="hidden" name="plan_week_id" value={week.id} />
+            <button
+              type="submit"
+              className="rounded-data border border-ocre/40 px-2 py-1 text-xs font-medium hover:bg-ocre/10"
+            >
+              Réajuster
+            </button>
+          </form>
+        </div>
       )}
 
       <ul className="mt-3 space-y-2">
@@ -361,11 +410,12 @@ function WeekBlock({
                     </div>
                   ))}
                   {isPast &&
-                    sessions.length > 0 &&
-                    activities.length === 0 &&
-                    !sessions.every((s) => s.session_type === 'renfo') && (
+                    sessions.some((s) =>
+                      RUN_SESSION_TYPES.has(s.session_type) &&
+                      !activities.some((a) => isRaceEligibleSport(a.sport_type)),
+                    ) && (
                       <p className="ml-16 text-xs italic text-ocre">
-                        aucune activité correspondante — séance manquée ?
+                        aucune activité de course correspondante — séance manquée ?
                       </p>
                     )}
                 </div>
