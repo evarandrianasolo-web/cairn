@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { ScreenTitle } from '@/components/screen-title'
+import { AiDisclosure } from '@/components/ai-disclosure'
 import { formatDateCourte } from '@/lib/format'
 import { createThread, deleteThread } from './actions'
 
@@ -29,10 +30,8 @@ export default async function CoachPage() {
     <main className="mx-auto max-w-3xl space-y-6 p-6">
       <ScreenTitle>Coach</ScreenTitle>
 
-      <p className="rounded-data border border-granit/30 bg-craie px-3 py-2 text-xs text-granit">
-        Tu échanges avec une IA (Claude, Anthropic). Elle ne remplace ni médecin,
-        ni kiné, ni diététicien.
-      </p>
+      <AiDisclosure />
+
 
       <form action={createThread}>
         <button

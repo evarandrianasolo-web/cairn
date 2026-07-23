@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { ScreenTitle } from '@/components/screen-title'
+import { AiDisclosure } from '@/components/ai-disclosure'
 import { sendMessage } from '../actions'
 
 type Message = {
@@ -52,10 +53,9 @@ export default async function CoachThreadPage({
 
       <ScreenTitle className="mt-2">{thread.title ?? 'Coach'}</ScreenTitle>
 
-      <p className="mt-3 rounded-data border border-granit/30 bg-craie px-3 py-2 text-xs text-granit">
-        Tu échanges avec une IA (Claude, Anthropic). Elle ne remplace ni médecin,
-        ni kiné, ni diététicien.
-      </p>
+      <div className="mt-3">
+        <AiDisclosure />
+      </div>
 
       <section className="mt-6 flex-1 space-y-4">
         {messages.length === 0 ? (
