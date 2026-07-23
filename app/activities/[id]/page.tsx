@@ -21,8 +21,15 @@ import {
   proposeDebriefFromActivity,
   proposeFuelingFromActivity,
   pullStravaDescription,
+  toggleTodoDismissed,
   updateActivityNotes,
 } from '../actions'
+
+const DISMISS_LABEL: Record<string, string> = {
+  debrief: 'débrief non nécessaire',
+  fueling: 'fueling non nécessaire',
+  link: 'aucune course à lier',
+}
 
 const INTAKE_LABELS = {
   rien: 'rien',
@@ -69,7 +76,7 @@ export default async function ActivityDetailPage({
   const { data: activity } = await supabase
     .from('activities')
     .select(
-      'id, name, description, sport_type, started_at, distance_m, elevation_gain_m, moving_time_s, elapsed_time_s, avg_pace_s_per_km, avg_cadence, strava_activity_id, user_notes, race_id',
+      'id, name, description, sport_type, started_at, distance_m, elevation_gain_m, moving_time_s, elapsed_time_s, avg_pace_s_per_km, avg_cadence, strava_activity_id, user_notes, race_id, todo_dismissed',
     )
     .eq('id', id)
     .maybeSingle()
@@ -444,6 +451,31 @@ export default async function ActivityDetailPage({
           </div>
         </form>
       </section>
+
+      {(activity.todo_dismissed ?? []).length > 0 && (
+        <section>
+          <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
+            À traiter — écarté
+          </h2>
+          <ul className="mt-2 flex flex-wrap gap-2 text-xs">
+            {(activity.todo_dismissed as string[]).map((r) => (
+              <li key={r}>
+                <form action={toggleTodoDismissed} className="inline-flex">
+                  <input type="hidden" name="activity_id" value={activity.id} />
+                  <input type="hidden" name="reason" value={r} />
+                  <button
+                    type="submit"
+                    className="rounded-data border border-granit/40 px-2 py-1 text-granit hover:bg-craie hover:text-schiste"
+                    title="Restaurer cette raison dans la liste à traiter"
+                  >
+                    {DISMISS_LABEL[r] ?? r} · restaurer
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {stravaUrl && (
         <p className="text-xs text-granit">

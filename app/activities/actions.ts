@@ -24,6 +24,52 @@ import {
   formatRaceDate,
 } from '@/lib/format'
 
+/**
+ * Ecarte / restaure une raison d'apparition dans /activites?filter=todo.
+ * Sert quand Eva ne veut pas loguer de fueling / debrief sur une seance
+ * particuliere ou confirmer un candidat course. Reversible : cliquer de
+ * nouveau retire la raison de la liste ecartee.
+ */
+const DISMISSABLE = new Set(['debrief', 'fueling', 'link'])
+
+export async function toggleTodoDismissed(formData: FormData) {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const id = String(formData.get('activity_id') ?? '').trim()
+  const reason = String(formData.get('reason') ?? '').trim()
+  if (!id) throw new Error('activity_id manquant')
+  if (!DISMISSABLE.has(reason)) throw new Error(`reason inconnue: ${reason}`)
+
+  const { data: current, error: readErr } = await supabase
+    .from('activities')
+    .select('todo_dismissed')
+    .eq('id', id)
+    .maybeSingle()
+  if (readErr) throw new Error(`toggleTodoDismissed read: ${readErr.message}`)
+  if (!current) throw new Error('activite introuvable')
+
+  const existing = new Set<string>((current.todo_dismissed as string[]) ?? [])
+  if (existing.has(reason)) {
+    existing.delete(reason)
+  } else {
+    existing.add(reason)
+  }
+
+  const { error: upErr } = await supabase
+    .from('activities')
+    .update({
+      todo_dismissed: Array.from(existing),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+  if (upErr) throw new Error(`toggleTodoDismissed update: ${upErr.message}`)
+
+  revalidatePath('/activities')
+  revalidatePath(`/activities/${id}`)
+}
+
 export async function updateActivityNotes(formData: FormData) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()

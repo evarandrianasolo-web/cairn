@@ -15,6 +15,7 @@ import {
   type RaceForMatch,
 } from '@/lib/race-matching'
 import { IconFlag, IconLink, IconPencil } from '@/components/icons'
+import { toggleTodoDismissed } from './actions'
 
 const PAGE_SIZE = 50
 const TODO_SCAN_WINDOW = 200
@@ -31,6 +32,7 @@ type ActivityRow = {
   avg_pace_s_per_km: number | null
   user_notes: string | null
   race_id: string | null
+  todo_dismissed: string[] | null
   fueling_logs: { id: string }[] | null
 }
 
@@ -66,7 +68,7 @@ export default async function ActivitiesPage({
     supabase
       .from('activities')
       .select(
-        'id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km, user_notes, race_id, fueling_logs(id)',
+        'id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km, user_notes, race_id, todo_dismissed, fueling_logs(id)',
         { count: 'exact' },
       )
       .order('started_at', { ascending: false })
@@ -79,7 +81,7 @@ export default async function ActivitiesPage({
     supabase
       .from('activities')
       .select(
-        'id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km, user_notes, race_id, fueling_logs(id)',
+        'id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km, user_notes, race_id, todo_dismissed, fueling_logs(id)',
       )
       .order('started_at', { ascending: false })
       .limit(TODO_SCAN_WINDOW),
@@ -236,19 +238,36 @@ export default async function ActivitiesPage({
                     </td>
                     {todoMode && (
                       <td className="px-3 py-2">
-                        <Link
-                          href={`/activities/${a.id}`}
-                          className="flex flex-wrap gap-1"
-                        >
+                        <div className="flex flex-wrap gap-1">
                           {reasons.map((r) => (
                             <span
                               key={r}
-                              className="rounded-data border border-ocre/40 px-1.5 py-0.5 font-mono text-xs uppercase text-ocre"
+                              className="inline-flex items-center gap-1 rounded-data border border-ocre/40 pl-1.5 font-mono text-xs uppercase text-ocre"
                             >
-                              {REASON_LABEL[r]}
+                              <Link
+                                href={`/activities/${a.id}`}
+                                className="py-0.5"
+                              >
+                                {REASON_LABEL[r]}
+                              </Link>
+                              <form action={toggleTodoDismissed} className="flex">
+                                <input
+                                  type="hidden"
+                                  name="activity_id"
+                                  value={a.id}
+                                />
+                                <input type="hidden" name="reason" value={r} />
+                                <button
+                                  type="submit"
+                                  title="Ne s'applique pas à cette séance"
+                                  className="px-1.5 py-0.5 text-ocre/60 hover:bg-ocre/10 hover:text-ocre"
+                                >
+                                  ×
+                                </button>
+                              </form>
                             </span>
                           ))}
-                        </Link>
+                        </div>
                       </td>
                     )}
                     <td className="px-3 py-2 tabular text-right text-schiste">
@@ -321,17 +340,25 @@ function reasonsFor(
   races: RaceForMatch[],
   debriefedRaceIds: Set<string>,
 ): Reason[] {
+  const dismissed = new Set(a.todo_dismissed ?? [])
   const out: Reason[] = []
-  if (a.race_id && !debriefedRaceIds.has(a.race_id)) out.push('debrief')
+  if (a.race_id && !debriefedRaceIds.has(a.race_id) && !dismissed.has('debrief'))
+    out.push('debrief')
   const hasFueling = Array.isArray(a.fueling_logs) && a.fueling_logs.length > 0
   if (
     a.moving_time_s != null &&
     a.moving_time_s >= LONG_SECS &&
     isRaceEligibleSport(a.sport_type) &&
-    !hasFueling
+    !hasFueling &&
+    !dismissed.has('fueling')
   ) {
     out.push('fueling')
   }
-  if (!a.race_id && candidatesForActivity(a, races).length > 0) out.push('link')
+  if (
+    !a.race_id &&
+    !dismissed.has('link') &&
+    candidatesForActivity(a, races).length > 0
+  )
+    out.push('link')
   return out
 }
