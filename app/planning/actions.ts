@@ -53,11 +53,15 @@ export async function generatePlanWeek(formData: FormData): Promise<void> {
 
   const sunday = new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000)
   const cible = `du ${dateFr(monday)} au ${dateFr(sunday)} (semaine ISO ${isoWeek}/${isoYear})`
+  const userHint = String(formData.get('user_hint') ?? '').trim()
 
   const context = await buildCoachContext(supabase)
+  const hintBlock = userHint
+    ? `\n## Notes d'Eva pour cette semaine\n${userHint}\n\nCes notes sont des consignes explicites : respecte-les tant qu'elles ne contredisent pas les regles non negociables.\n`
+    : ''
   const userPrompt = `## Semaine a planifier
 ${cible}
-
+${hintBlock}
 ## Contexte
 ${context}
 

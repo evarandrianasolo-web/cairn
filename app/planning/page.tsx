@@ -101,27 +101,32 @@ export default async function PlanningPage({
 
       <section className="rounded-data border border-brume bg-craie p-4">
         <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
-          Prochaine semaine à planifier
+          Semaine {nextIsoWeek} ·{' '}
+          <span className="tabular">
+            {formatDateCourte(nextMonday.toISOString())} →{' '}
+            {formatDateCourte(
+              new Date(nextMonday.getTime() + 6 * DAY_MS).toISOString(),
+            )}
+          </span>
         </h2>
         <p className="mt-2 text-sm text-granit">
-          Le coach IA propose une semaine (lundi → dimanche) à partir de tes
-          4 dernières semaines, ta prochaine course A, tes contraintes
-          actives et tes derniers débriefs / logs fueling. Tu peux la
-          supprimer si elle ne convient pas.
+          Le coach IA génère une semaine (lundi → dimanche) à partir de tes 4
+          dernières semaines, ta prochaine course A, tes contraintes actives
+          et tes derniers débriefs / logs fueling.
         </p>
-        <form action={generatePlanWeek} className="mt-3">
+        <form action={generatePlanWeek} className="mt-3 space-y-3">
           <input type="hidden" name="target_monday" value={targetMondayIso} />
+          <textarea
+            name="user_hint"
+            rows={3}
+            placeholder="Notes pour cette semaine (facultatif) — ex : « repos vendredi, sortie longue samedi 3h dans le Jura », « bloc côte », « fatigué, allègement »."
+            className="w-full rounded-data border border-granit/35 bg-craie px-3 py-2 text-sm text-schiste focus:border-schiste focus:outline-none"
+          />
           <button
             type="submit"
             className="rounded-surface bg-schiste px-4 py-2 text-sm font-medium text-craie"
           >
-            Générer la semaine {nextIsoWeek} —{' '}
-            <span className="tabular">
-              {formatDateCourte(nextMonday.toISOString())} →{' '}
-              {formatDateCourte(
-                new Date(nextMonday.getTime() + 6 * DAY_MS).toISOString(),
-              )}
-            </span>
+            Générer
           </button>
         </form>
       </section>
