@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { anthropic, COACH_MODEL } from '@/lib/ai/anthropic'
+import { getValidAccessToken } from '@/lib/strava/tokens'
+import { getActivityDetail } from '@/lib/strava/api'
 import {
   DEBRIEF_FROM_NOTES_SYSTEM,
   DEBRIEF_SCHEMA,
@@ -42,6 +44,71 @@ export async function updateActivityNotes(formData: FormData) {
 
   revalidatePath(`/activities/${id}`)
   revalidatePath('/activities')
+  redirect(`/activities/${id}?ok=1`)
+}
+
+/**
+ * Récupère la description Strava d'une activité (endpoint détail, 1 appel
+ * API) et l'écrit dans `description` + `user_notes` si ces derniers sont
+ * vides. On ne touche pas à `user_notes` si Eva a déjà commencé à noter,
+ * pour ne pas ecraser son travail. Requiert la connexion Strava active.
+ */
+export async function pullStravaDescription(formData: FormData) {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const id = String(formData.get('activity_id') ?? '').trim()
+  if (!id) throw new Error('activity_id manquant')
+
+  const { data: activity, error: readErr } = await supabase
+    .from('activities')
+    .select('id, strava_activity_id, description, user_notes')
+    .eq('id', id)
+    .maybeSingle()
+  if (readErr) throw new Error(`pullStravaDescription read: ${readErr.message}`)
+  if (!activity) redirect('/activities')
+  if (!activity.strava_activity_id) {
+    redirect(
+      `/activities/${id}?erreur=` +
+        encodeURIComponent('Cette activité ne vient pas de Strava.'),
+    )
+  }
+
+  let detail
+  try {
+    const token = await getValidAccessToken(supabase)
+    detail = await getActivityDetail(token, activity.strava_activity_id)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    redirect(
+      `/activities/${id}?erreur=` +
+        encodeURIComponent(`Récupération Strava impossible : ${msg}`),
+    )
+  }
+
+  const desc = detail.description?.trim() ?? ''
+  if (desc.length === 0) {
+    redirect(
+      `/activities/${id}?erreur=` +
+        encodeURIComponent('Pas de description côté Strava sur cette activité.'),
+    )
+  }
+
+  const existingNotes = (activity.user_notes ?? '').trim()
+  const update: { description: string; user_notes?: string; updated_at: string } = {
+    description: desc,
+    updated_at: new Date().toISOString(),
+  }
+  if (existingNotes.length === 0) update.user_notes = desc
+
+  const { error: upErr } = await supabase
+    .from('activities')
+    .update(update)
+    .eq('id', id)
+  if (upErr) throw new Error(`pullStravaDescription update: ${upErr.message}`)
+
+  revalidatePath(`/activities/${id}`)
   redirect(`/activities/${id}?ok=1`)
 }
 

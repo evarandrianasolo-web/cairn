@@ -16,6 +16,7 @@ import {
   linkActivityToRace,
   proposeDebriefFromActivity,
   proposeFuelingFromActivity,
+  pullStravaDescription,
   updateActivityNotes,
 } from '../actions'
 
@@ -297,16 +298,20 @@ export default async function ActivityDetailPage({
         )}
       </section>
 
-      {activity.description && (
-        <section>
-          <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
-            Depuis Strava
-          </h2>
-          <p className="mt-2 whitespace-pre-line text-base text-schiste">
-            {activity.description}
-          </p>
-        </section>
-      )}
+      {activity.description &&
+        activity.description.trim() !== (activity.user_notes ?? '').trim() && (
+          <section>
+            <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
+              Depuis Strava
+            </h2>
+            <p className="mt-2 whitespace-pre-line text-sm text-granit">
+              {activity.description}
+            </p>
+            <p className="mt-1 text-xs text-granit italic">
+              Version d&apos;origine. Tes notes ci-dessous en ont divergé.
+            </p>
+          </section>
+        )}
 
       <section>
         <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
@@ -394,13 +399,24 @@ export default async function ActivityDetailPage({
         <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
           Mes notes
         </h2>
+        {!activity.user_notes && !activity.description && activity.strava_activity_id && (
+          <form action={pullStravaDescription} className="mt-2">
+            <input type="hidden" name="activity_id" value={activity.id} />
+            <button
+              type="submit"
+              className="text-xs text-granit underline hover:text-schiste"
+            >
+              ↓ récupérer la description depuis Strava
+            </button>
+          </form>
+        )}
         <form action={updateActivityNotes} className="mt-3">
           <input type="hidden" name="id" value={activity.id} />
           <textarea
             name="user_notes"
             rows={5}
             defaultValue={activity.user_notes ?? ''}
-            placeholder="Sensations, contexte, matériel, ce qui a marché ou pas. Indépendant de la description Strava — n'est jamais écrasé par un re-import."
+            placeholder="Sensations, ravitos, ce qui a marché ou pas. Ces notes servent à proposer un débrief et un log de fueling ci-dessus. Elles ne sont jamais écrasées par un re-import Strava."
             className="w-full rounded-data border border-granit/35 bg-craie px-3 py-2 text-base text-schiste focus:border-schiste focus:outline-none"
           />
           <div className="mt-3 flex items-center justify-between">

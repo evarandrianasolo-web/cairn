@@ -32,3 +32,23 @@ export async function listActivities(
   if (!res.ok) throw new Error(`Strava list activities: ${res.status} ${await res.text()}`)
   return res.json()
 }
+
+/**
+ * Récupère une activité Strava par son id (endpoint détail).
+ * Différent de listActivities : ce endpoint renvoie `description` (les
+ * notes personnelles Strava), absentes de la version résumée. Coûte
+ * un appel API par activité — à réserver aux activités où l'on veut
+ * vraiment récupérer les notes.
+ */
+export async function getActivityDetail(
+  accessToken: string,
+  stravaActivityId: number,
+): Promise<StravaActivity> {
+  const url = `${STRAVA_API_BASE}/activities/${stravaActivityId}`
+  const res = await fetch(url, {
+    headers: { authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error(`Strava activity detail: ${res.status} ${await res.text()}`)
+  return res.json()
+}
