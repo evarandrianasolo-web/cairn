@@ -80,6 +80,19 @@ const PHASE_LABEL: Record<string, string> = {
   recup: 'récup',
 }
 
+// Couleur de fond du retroplan par phase. Neutres qui montent en
+// intensite : plus la phase est proche de la course, plus le fond est
+// dense. On evite les couleurs semantiques (balise/lichen/ocre) qui
+// portent deja un sens ailleurs.
+const PHASE_BG: Record<string, string> = {
+  base: 'bg-granit/30',
+  specifique: 'bg-granit/50',
+  choc: 'bg-granit/70',
+  affutage: 'bg-granit/40',
+  recup: 'bg-lichen/60',
+  course: 'bg-balise',
+}
+
 type ActivityMatch = {
   id: string
   name: string | null
@@ -128,6 +141,29 @@ export default async function PlanningPage({
   const currentMonday = isoWeekStart(now)
   const currentIsoWeek = isoWeekNumber(currentMonday)
   const targetMondayIso = currentMonday.toISOString().slice(0, 10)
+  const todayIso = now.toISOString().slice(0, 10)
+
+  // Prochaine course A pour le retroplan macro.
+  const { data: nextRaceA } = await supabase
+    .from('races')
+    .select('id, name, race_date')
+    .eq('priority', 'A')
+    .gte('race_date', todayIso)
+    .order('race_date', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  // Courses B/C dans les 12 prochaines semaines pour les marqueurs.
+  const horizonIso = new Date(now.getTime() + 12 * 7 * DAY_MS)
+    .toISOString()
+    .slice(0, 10)
+  const { data: secondaryRaces } = await supabase
+    .from('races')
+    .select('id, name, race_date, priority')
+    .in('priority', ['B', 'C'])
+    .gte('race_date', todayIso)
+    .lte('race_date', horizonIso)
+    .order('race_date', { ascending: true })
 
   const { data: weeks } = await supabase
     .from('plan_weeks')
@@ -163,7 +199,6 @@ export default async function PlanningPage({
       activitiesByDate.set(key, list)
     }
   }
-  const todayIso = new Date().toISOString().slice(0, 10)
 
   return (
     <main className="mx-auto max-w-4xl space-y-6 p-6">
@@ -185,6 +220,16 @@ export default async function PlanningPage({
           Semaine réajustée à partir d&apos;aujourd&apos;hui. Les jours passés
           sont conservés.
         </p>
+      )}
+
+      {nextRaceA && (
+        <RetroplanMacro
+          nextRaceA={nextRaceA}
+          secondaryRaces={secondaryRaces ?? []}
+          plannedWeeks={rows}
+          currentMonday={currentMonday}
+          todayIso={todayIso}
+        />
       )}
 
       <section className="rounded-data border border-brume bg-craie p-4">
@@ -254,6 +299,144 @@ export default async function PlanningPage({
 }
 
 const WEEKDAY_LABELS = ['lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'] as const
+
+function RetroplanMacro({
+  nextRaceA,
+  secondaryRaces,
+  plannedWeeks,
+  currentMonday,
+  todayIso,
+}: {
+  nextRaceA: { id: string; name: string; race_date: string }
+  secondaryRaces: { id: string; name: string; race_date: string; priority: string }[]
+  plannedWeeks: PlanWeekRow[]
+  currentMonday: Date
+  todayIso: string
+}) {
+  const raceDate = new Date(nextRaceA.race_date + 'T12:00:00Z')
+  const raceMonday = isoWeekStart(raceDate)
+  const totalWeeks =
+    Math.max(1, Math.round((raceMonday.getTime() - currentMonday.getTime()) / (7 * DAY_MS))) + 1
+
+  // Bornes affichees : min 6 semaines, max 20 pour rester lisible.
+  const displayWeeks = Math.max(6, Math.min(20, totalWeeks))
+  const daysUntilRace = Math.max(
+    0,
+    Math.round((raceDate.getTime() - new Date(todayIso + 'T12:00:00Z').getTime()) / DAY_MS),
+  )
+
+  const weeksByIso = new Map<string, PlanWeekRow>()
+  for (const w of plannedWeeks) {
+    weeksByIso.set(`${w.iso_year}-${w.iso_week}`, w)
+  }
+  const secondariesByIso = new Map<string, typeof secondaryRaces[number]>()
+  for (const r of secondaryRaces) {
+    const monday = isoWeekStart(new Date(r.race_date + 'T12:00:00Z'))
+    secondariesByIso.set(monday.toISOString().slice(0, 10), r)
+  }
+
+  const cells = Array.from({ length: displayWeeks }, (_, i) => {
+    const monday = new Date(currentMonday.getTime() + i * 7 * DAY_MS)
+    const mondayIso = monday.toISOString().slice(0, 10)
+    const iso = `${isoYearOf(monday)}-${isoWeekNumber(monday)}`
+    const pw = weeksByIso.get(iso)
+    const isRaceWeek = monday.getTime() === raceMonday.getTime()
+    const secondary = secondariesByIso.get(mondayIso)
+    return { monday, mondayIso, pw, isRaceWeek, secondary, isoWeek: isoWeekNumber(monday) }
+  })
+
+  return (
+    <section className="rounded-data border border-brume bg-craie p-4">
+      <div className="mb-3 flex items-baseline justify-between gap-2">
+        <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
+          Rétroplan · {shortRaceName(nextRaceA.name)}
+        </h2>
+        <span className="tabular font-mono text-xs text-balise">
+          J−{daysUntilRace}
+        </span>
+      </div>
+
+      <div className="relative flex items-end gap-[3px] h-11">
+        {cells.map((c) => {
+          const isToday = c.mondayIso === isoWeekStart(new Date(todayIso + 'T12:00:00Z'))
+            .toISOString()
+            .slice(0, 10)
+          const bg = c.isRaceWeek
+            ? 'bg-balise'
+            : c.pw
+              ? PHASE_BG[c.pw.phase] ?? 'bg-granit/30'
+              : 'bg-granit/15'
+          const heightPx = c.isRaceWeek ? 44 : c.pw ? 33 : 18
+          return (
+            <div
+              key={c.mondayIso}
+              className="relative flex flex-1 flex-col items-center justify-end h-full"
+              title={
+                c.isRaceWeek
+                  ? `S${c.isoWeek} · ${nextRaceA.name}`
+                  : c.pw
+                    ? `S${c.isoWeek} · ${PHASE_LABEL[c.pw.phase] ?? c.pw.phase}`
+                    : `S${c.isoWeek} · à planifier`
+              }
+            >
+              {isToday && (
+                <span className="absolute -top-4 left-1/2 -translate-x-1/2 font-mono text-[9px] text-balise">
+                  auj.
+                </span>
+              )}
+              {c.secondary && !c.isRaceWeek && (
+                <span className="absolute -top-4 left-1/2 -translate-x-1/2 font-mono text-[9px] text-ocre">
+                  {c.secondary.priority}
+                </span>
+              )}
+              <div
+                className={`w-full rounded-sm ${bg} ${
+                  isToday ? 'ring-1 ring-balise' : ''
+                }`}
+                style={{ height: `${heightPx}px` }}
+              />
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-granit">
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2 w-2 bg-granit/30" /> base
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2 w-2 bg-granit/50" /> spéc.
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2 w-2 bg-granit/70" /> choc
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2 w-2 bg-granit/40" /> affût.
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2 w-2 bg-balise" /> course
+        </span>
+      </div>
+    </section>
+  )
+}
+
+function shortRaceName(name: string): string {
+  const trimmed = name.trim()
+  if (trimmed.length <= 20) return trimmed
+  return trimmed.slice(0, 18) + '…'
+}
+
+/** Annee ISO d'une date. Approximation suffisante pour les cellules du
+ * retroplan (le mismatch bord d'annee ne toucherait qu'une case). */
+function isoYearOf(d: Date): number {
+  const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4))
+  const jan4Day = jan4.getUTCDay() || 7
+  const week1Monday = new Date(jan4)
+  week1Monday.setUTCDate(jan4.getUTCDate() - jan4Day + 1)
+  if (d.getTime() < week1Monday.getTime()) return d.getUTCFullYear() - 1
+  return d.getUTCFullYear()
+}
 
 function WeekBlock({
   week,
