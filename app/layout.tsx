@@ -50,6 +50,9 @@ export default function RootLayout({
             <Link href="/aujourdhui" className="text-schiste hover:underline">
               Aujourd&apos;hui
             </Link>
+            <Link href="/planning" className="text-schiste hover:underline">
+              Planning
+            </Link>
             <Link href="/coach" className="text-schiste hover:underline">
               Coach
             </Link>
