@@ -9,6 +9,7 @@ import {
   formatDplus,
   formatDuree,
 } from '@/lib/format'
+import { candidatesForActivity, type RaceForMatch } from '@/lib/race-matching'
 
 const PAGE_SIZE = 50
 
@@ -26,15 +27,23 @@ export default async function ActivitiesPage({
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
-  const { data: activities, count } = await supabase
-    .from('activities')
-    .select(
-      'id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km, user_notes, race_id, fueling_logs(id)',
-      { count: 'exact' },
-    )
-    .order('started_at', { ascending: false })
-    .range(from, to)
+  const [{ data: activities, count }, { data: allRaces }] = await Promise.all([
+    supabase
+      .from('activities')
+      .select(
+        'id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km, user_notes, race_id, fueling_logs(id)',
+        { count: 'exact' },
+      )
+      .order('started_at', { ascending: false })
+      .range(from, to),
+    supabase
+      .from('races')
+      .select('id, name, race_date, distance_m')
+      .order('race_date', { ascending: false })
+      .limit(200),
+  ])
 
+  const races = (allRaces ?? []) as RaceForMatch[]
   const total = count ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
@@ -71,7 +80,12 @@ export default async function ActivitiesPage({
                 </tr>
               </thead>
               <tbody>
-                {activities?.map((a) => (
+                {activities?.map((a) => {
+                  const candidateRace =
+                    !a.race_id && races.length > 0
+                      ? candidatesForActivity(a, races)[0] ?? null
+                      : null
+                  return (
                   <tr
                     key={a.id}
                     className="border-t border-brume hover:bg-brume/40"
@@ -95,6 +109,14 @@ export default async function ActivitiesPage({
                             title="course"
                           >
                             🏁
+                          </span>
+                        )}
+                        {candidateRace && (
+                          <span
+                            className="ml-2 text-xs text-ocre"
+                            title={`course à lier ? ${candidateRace.name}`}
+                          >
+                            🔗
                           </span>
                         )}
                         {a.user_notes && (
@@ -136,7 +158,8 @@ export default async function ActivitiesPage({
                       </Link>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
