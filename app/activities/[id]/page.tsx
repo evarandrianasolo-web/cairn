@@ -11,7 +11,11 @@ import {
   formatGoalTime,
   formatRaceDate,
 } from '@/lib/format'
-import { candidatesForActivity, type RaceForMatch } from '@/lib/race-matching'
+import {
+  candidatesForActivity,
+  isRaceEligibleSport,
+  type RaceForMatch,
+} from '@/lib/race-matching'
 import {
   linkActivityToRace,
   proposeDebriefFromActivity,
@@ -116,6 +120,7 @@ export default async function ActivityDetailPage({
     ? `https://www.strava.com/activities/${activity.strava_activity_id}`
     : null
 
+  const raceEligible = isRaceEligibleSport(activity.sport_type)
   const candidates = candidatesForActivity(activity, allRaces)
   const bestCandidate = candidates[0] ?? null
 
@@ -232,6 +237,13 @@ export default async function ActivityDetailPage({
                 dissocier
               </button>
             </form>
+          </div>
+        ) : !raceEligible ? (
+          <div className="mt-3 rounded-data border border-brume bg-craie px-3 py-3">
+            <p className="text-sm text-granit">
+              Type <span className="text-schiste">{activity.sport_type ?? '—'}</span>{' '}
+              — pas de liaison à une course de trail/run.
+            </p>
           </div>
         ) : (
           <div className="mt-3 space-y-2 rounded-data border border-brume bg-craie px-3 py-3">

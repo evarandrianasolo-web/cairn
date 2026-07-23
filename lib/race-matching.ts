@@ -8,9 +8,25 @@
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+/**
+ * Types Strava consideres comme une potentielle course a pied. Les autres
+ * (Workout, WeightTraining, Ride, Yoga, etc.) ne sont jamais candidates a
+ * une liaison course, meme si un jour et une distance matchent.
+ */
+export const RACE_ELIGIBLE_SPORT_TYPES = new Set([
+  'Run',
+  'TrailRun',
+  'VirtualRun',
+])
+
+export function isRaceEligibleSport(sportType: string | null | undefined): boolean {
+  return sportType != null && RACE_ELIGIBLE_SPORT_TYPES.has(sportType)
+}
+
 export type ActivityForMatch = {
   started_at: string
   distance_m: number | null
+  sport_type?: string | null
 }
 
 export type RaceForMatch = {
@@ -37,6 +53,11 @@ export function candidatesForActivity(
   activity: ActivityForMatch,
   races: RaceForMatch[],
 ): RaceCandidate[] {
+  // Un sport hors course a pied n'est jamais candidat, meme si un jour et
+  // une distance matcheraient. Court-circuit precoce.
+  if (activity.sport_type !== undefined && !isRaceEligibleSport(activity.sport_type)) {
+    return []
+  }
   const out: RaceCandidate[] = []
   for (const race of races) {
     const dateDiffDays = daysBetween(activity.started_at, race.race_date)
