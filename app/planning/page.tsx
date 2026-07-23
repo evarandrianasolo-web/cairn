@@ -143,10 +143,33 @@ export default async function PlanningPage({
   )
 }
 
+const WEEKDAY_LABELS = ['lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'] as const
+
+/** Retourne le lundi 00:00 UTC de la semaine ISO donnee (annee, numero). */
+function isoWeekMonday(isoYear: number, isoWeek: number): Date {
+  // Jeudi de la semaine 1 = premier jeudi de l'annee ISO.
+  const jan4 = new Date(Date.UTC(isoYear, 0, 4))
+  const jan4Day = jan4.getUTCDay() || 7 // lun=1..dim=7
+  const week1Monday = new Date(jan4)
+  week1Monday.setUTCDate(jan4.getUTCDate() - jan4Day + 1)
+  const monday = new Date(week1Monday)
+  monday.setUTCDate(week1Monday.getUTCDate() + (isoWeek - 1) * 7)
+  return monday
+}
+
 function WeekBlock({ week }: { week: PlanWeekRow }) {
-  const sessions = [...week.planned_sessions].sort((a, b) =>
-    a.scheduled_on.localeCompare(b.scheduled_on),
-  )
+  const monday = isoWeekMonday(week.iso_year, week.iso_week)
+  // On construit les 7 jours lundi -> dimanche ; chaque jour porte
+  // les 0..N seances qui tombent dessus (souvent 0 ou 1).
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday)
+    d.setUTCDate(monday.getUTCDate() + i)
+    const dateIso = d.toISOString().slice(0, 10)
+    const sessions = week.planned_sessions.filter(
+      (s) => s.scheduled_on === dateIso,
+    )
+    return { date: d, dateIso, sessions }
+  })
   return (
     <section className="rounded-data border border-brume bg-craie p-4">
       <div className="flex items-baseline justify-between gap-4">
@@ -181,42 +204,55 @@ function WeekBlock({ week }: { week: PlanWeekRow }) {
         <p className="mt-2 text-sm text-schiste italic">{week.notes}</p>
       )}
 
-      {sessions.length === 0 ? (
-        <p className="mt-3 text-xs text-granit italic">
-          Aucune séance dans cette semaine (semaine de repos total).
-        </p>
-      ) : (
-        <ul className="mt-3 space-y-1">
-          {sessions.map((s) => (
-            <li key={s.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="tabular w-20 text-xs text-granit">
-                {formatDateCourte(s.scheduled_on)}
-              </span>
-              <span className="w-16 font-mono text-xs uppercase text-schiste">
-                {SESSION_TYPE_LABEL[s.session_type] ?? s.session_type}
-              </span>
-              <span className="flex-1 text-sm text-schiste">{s.intent}</span>
-              <span className="tabular text-xs text-granit">
-                {s.target_duration_s ? formatDuree(s.target_duration_s) : '—'}
-                {s.target_distance_m
-                  ? ` · ${formatDistance(s.target_distance_m)}`
-                  : ''}
-                {s.target_elevation_m
-                  ? ` · ${formatDplus(s.target_elevation_m)}`
-                  : ''}
-              </span>
-              {s.is_club && (
-                <span
-                  className="rounded-data border border-granit/35 px-1.5 py-0.5 font-mono text-xs uppercase text-granit"
-                  title="Séance imposée par le club"
-                >
-                  club
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      <ul className="mt-3 space-y-1">
+        {days.map(({ date, dateIso, sessions }, i) => (
+          <li
+            key={dateIso}
+            className="flex flex-wrap items-baseline gap-x-3 gap-y-1"
+          >
+            <span className="tabular w-24 text-xs text-granit">
+              <span className="font-mono uppercase">{WEEKDAY_LABELS[i]}</span>{' '}
+              {formatDateCourte(date.toISOString())}
+            </span>
+            {sessions.length === 0 ? (
+              <span className="flex-1 text-sm italic text-granit">repos</span>
+            ) : (
+              <div className="flex flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
+                {sessions.map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex flex-1 flex-wrap items-baseline gap-x-3 gap-y-1"
+                  >
+                    <span className="w-16 font-mono text-xs uppercase text-schiste">
+                      {SESSION_TYPE_LABEL[s.session_type] ?? s.session_type}
+                    </span>
+                    <span className="flex-1 text-sm text-schiste">
+                      {s.intent}
+                    </span>
+                    <span className="tabular text-xs text-granit">
+                      {s.target_duration_s ? formatDuree(s.target_duration_s) : '—'}
+                      {s.target_distance_m
+                        ? ` · ${formatDistance(s.target_distance_m)}`
+                        : ''}
+                      {s.target_elevation_m
+                        ? ` · ${formatDplus(s.target_elevation_m)}`
+                        : ''}
+                    </span>
+                    {s.is_club && (
+                      <span
+                        className="rounded-data border border-granit/35 px-1.5 py-0.5 font-mono text-xs uppercase text-granit"
+                        title="Séance imposée par le club"
+                      >
+                        club
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }
