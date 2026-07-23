@@ -69,9 +69,8 @@ export default async function PlanningPage({
 
   const now = new Date()
   const currentMonday = isoWeekStart(now)
-  const nextMonday = new Date(currentMonday.getTime() + 7 * DAY_MS)
-  const nextIsoWeek = isoWeekNumber(nextMonday)
-  const targetMondayIso = nextMonday.toISOString().slice(0, 10)
+  const currentIsoWeek = isoWeekNumber(currentMonday)
+  const targetMondayIso = currentMonday.toISOString().slice(0, 10)
 
   const { data: weeks } = await supabase
     .from('plan_weeks')
@@ -101,9 +100,9 @@ export default async function PlanningPage({
 
       <section className="rounded-data border border-brume bg-craie p-4">
         <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
-          À partir de la semaine {nextIsoWeek} ·{' '}
+          À partir de la semaine {currentIsoWeek} ·{' '}
           <span className="tabular">
-            {formatDateCourte(nextMonday.toISOString())}
+            {formatDateCourte(currentMonday.toISOString())}
           </span>
         </h2>
         <p className="mt-2 text-sm text-granit">

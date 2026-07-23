@@ -41,7 +41,17 @@ type LatestActivity = {
  * derniere activite. Une seule chose mise en avant a la fois, dans
  * l'esprit du handoff Claude Design.
  */
+type PlannedToday = {
+  sessionType: string
+  intent: string | null
+  durationS: number | null
+  distanceM: number | null
+  elevationM: number | null
+  isClub: boolean
+}
+
 type MainCard =
+  | { kind: 'planned-today'; planned: PlannedToday }
   | { kind: 'debrief-race'; activityId: string; raceName: string }
   | { kind: 'log-fueling'; activityId: string; activityName: string; durationS: number }
   | { kind: 'link-race'; activityId: string; activityName: string; raceName: string }
@@ -109,6 +119,7 @@ async function buildTodayView(supabase: SupabaseClient) {
     weeklyActivitiesRes,
     racesRes,
     constraintsRes,
+    plannedTodayRes,
   ] = await Promise.all([
     supabase
       .from('races')
@@ -151,16 +162,46 @@ async function buildTodayView(supabase: SupabaseClient) {
           `and(recurrence_rule.is.null,starts_on.lte.${new Date(now.getTime() + 6 * DAY_MS).toISOString().slice(0, 10)},or(ends_on.is.null,ends_on.gte.${todayIso}))`,
       )
       .limit(5),
+    // Seance du jour si le plan contient quelque chose et si elle n'est
+    // pas deja realisee. Une seule ligne attendue -- s'il y en a plus,
+    // on prend celle qui n'est pas encore accomplie.
+    supabase
+      .from('planned_sessions')
+      .select(
+        'session_type, intent, target_duration_s, target_distance_m, target_elevation_m, is_club, status, matched_activity_id',
+      )
+      .eq('scheduled_on', todayIso)
+      .order('created_at', { ascending: false })
+      .limit(3),
   ])
 
   const recentActivities = (recentActivitiesRes.data ?? []) as RecentActivity[]
+  const plannedTodayRaw = (plannedTodayRes.data ?? []) as {
+    session_type: string
+    intent: string | null
+    target_duration_s: number | null
+    target_distance_m: number | null
+    target_elevation_m: number | null
+    is_club: boolean
+    status: string
+    matched_activity_id: string | null
+  }[]
+  const plannedToday =
+    plannedTodayRaw.find(
+      (p) => p.status !== 'realisee' && p.matched_activity_id == null,
+    ) ?? null
   const allRaces = (racesRes.data ?? []) as RaceForMatch[]
   const nextRaceA = nextARes.data as NextRace
   const nextSecondary = nextSecondaryRes.data as
     | { name: string; race_date: string; priority: 'B' | 'C' }
     | null
 
-  const card = await pickMainCard(supabase, recentActivities, allRaces)
+  const card = await pickMainCard(
+    supabase,
+    recentActivities,
+    allRaces,
+    plannedToday,
+  )
 
   // Charge : semaine courante vs moyenne des 3 semaines precedentes.
   const weekly = aggregateByWeek(weeklyActivitiesRes.data ?? [], 4)
@@ -199,7 +240,30 @@ async function pickMainCard(
   supabase: SupabaseClient,
   recent: RecentActivity[],
   allRaces: RaceForMatch[],
+  plannedToday: {
+    session_type: string
+    intent: string | null
+    target_duration_s: number | null
+    target_distance_m: number | null
+    target_elevation_m: number | null
+    is_club: boolean
+  } | null,
 ): Promise<MainCard> {
+  // 0. La seance du jour du plan prime sur tout : c'est le motif meme
+  //    de la venue d'Eva sur cet ecran.
+  if (plannedToday) {
+    return {
+      kind: 'planned-today',
+      planned: {
+        sessionType: plannedToday.session_type,
+        intent: plannedToday.intent,
+        durationS: plannedToday.target_duration_s,
+        distanceM: plannedToday.target_distance_m,
+        elevationM: plannedToday.target_elevation_m,
+        isClub: plannedToday.is_club,
+      },
+    }
+  }
   if (recent.length === 0) return { kind: 'nothing-recent' }
 
   // 1. Course terminee recemment (activite liee a une race) sans debrief.
@@ -283,7 +347,66 @@ function shortName(name: string): string {
   return initials.length >= 2 ? initials : trimmed.slice(0, 6).toUpperCase()
 }
 
+const SESSION_TYPE_TITLE: Record<string, string> = {
+  endurance: 'ENDURANCE FONDAMENTALE',
+  seuil: 'SEUIL',
+  vma: 'VMA',
+  cote: 'CÔTES',
+  longue: 'SORTIE LONGUE',
+  recup: 'RÉCUP',
+  renfo: 'RENFO',
+  rando: 'RANDO',
+  course: 'COURSE',
+}
+
 function MainCardView({ card }: { card: MainCard }) {
+  if (card.kind === 'planned-today') {
+    const p = card.planned
+    const parts: string[] = []
+    if (p.durationS) parts.push(formatDuree(p.durationS))
+    if (p.distanceM) parts.push(formatDistance(p.distanceM))
+    if (p.elevationM) parts.push(formatDplus(p.elevationM))
+    const metrics = parts.join(' · ')
+    const title = SESSION_TYPE_TITLE[p.sessionType] ?? p.sessionType.toUpperCase()
+    return (
+      <>
+        <div className="mt-[46px]">
+          <DeuxBarres size={22} />
+        </div>
+        <p className="mt-[14px] font-mono text-xs uppercase tracking-wide text-granit">
+          Aujourd&apos;hui{p.isClub ? ' · club' : ''}
+        </p>
+        <h1
+          className="mt-1 font-display text-2xl font-extrabold uppercase leading-tight tracking-[0.03em] text-schiste"
+          style={DISPLAY_STYLE}
+        >
+          {title}
+        </h1>
+        {metrics && (
+          <p
+            className="mt-3 font-mono text-sm text-schiste [font-variant-numeric:tabular-nums]"
+            style={DATA_STYLE}
+          >
+            {metrics}
+          </p>
+        )}
+        {p.intent && (
+          <div className="mt-[26px] rounded-surface border border-granit/20 bg-craie p-[18px]">
+            <p className="text-base leading-[1.5] text-schiste">{p.intent}</p>
+          </div>
+        )}
+        <div className="mt-[30px] flex gap-3">
+          <Link
+            href="/planning"
+            className="flex-1 rounded-surface border border-schiste bg-schiste px-4 py-3 text-center text-base font-medium text-craie"
+          >
+            Voir la semaine
+          </Link>
+        </div>
+      </>
+    )
+  }
+
   if (card.kind === 'nothing-recent') {
     return (
       <div className="mt-[46px] flex flex-col items-start gap-4">
@@ -382,7 +505,10 @@ function MainCardView({ card }: { card: MainCard }) {
 }
 
 function actionLabels(
-  card: Exclude<MainCard, { kind: 'recap-activity' } | { kind: 'nothing-recent' }>,
+  card: Exclude<
+    MainCard,
+    { kind: 'recap-activity' } | { kind: 'nothing-recent' } | { kind: 'planned-today' }
+  >,
 ): { titre: string; phrase: string; href: string; cta: string } {
   switch (card.kind) {
     case 'debrief-race':
