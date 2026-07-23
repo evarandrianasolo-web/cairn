@@ -14,6 +14,7 @@ import {
   isRaceEligibleSport,
   type RaceForMatch,
 } from '@/lib/race-matching'
+import { IconFlag, IconLink, IconPencil } from '@/components/icons'
 
 const PAGE_SIZE = 50
 const TODO_SCAN_WINDOW = 200
@@ -200,36 +201,33 @@ export default async function ActivitiesPage({
                       </Link>
                     </td>
                     <td className="max-w-xs truncate px-3 py-2 text-schiste">
-                      <Link href={`/activities/${a.id}`} className="block">
-                        {a.name ?? '—'}
+                      <Link
+                        href={`/activities/${a.id}`}
+                        className="flex items-center gap-2"
+                      >
+                        <span className="truncate">{a.name ?? '—'}</span>
                         {a.race_id && (
-                          <span
-                            className="ml-2 text-xs text-granit"
-                            title="course"
-                          >
-                            🏁
-                          </span>
+                          <IconFlag
+                            className="shrink-0 text-granit"
+                            title="Liée à une course"
+                          />
                         )}
                         {candidateRace && (
-                          <span
-                            className="ml-2 text-xs text-ocre"
-                            title={`course à lier ? ${candidateRace.name}`}
-                          >
-                            🔗
-                          </span>
+                          <IconLink
+                            className="shrink-0 text-ocre"
+                            title={`Course à lier ? ${candidateRace.name}`}
+                          />
                         )}
                         {a.user_notes && (
-                          <span
-                            className="ml-2 text-xs text-granit"
-                            title="notes personnelles"
-                          >
-                            ✎
-                          </span>
+                          <IconPencil
+                            className="shrink-0 text-granit"
+                            title="Notes personnelles"
+                          />
                         )}
                         {Array.isArray(a.fueling_logs) && a.fueling_logs.length > 0 && (
                           <span
-                            className="ml-1 font-mono text-xs text-granit"
-                            title="fueling loggé"
+                            className="shrink-0 font-mono text-xs text-granit"
+                            title="Fueling loggé"
                           >
                             g/h
                           </span>
