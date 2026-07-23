@@ -21,6 +21,18 @@ export function isoWeekNumber(date: Date): number {
   return Math.ceil(((d.getTime() - yearStart.getTime()) / DAY_MS + 1) / 7)
 }
 
+/** Lundi 00:00 UTC de la semaine ISO donnee (annee ISO + numero). */
+export function isoWeekMonday(isoYear: number, isoWeek: number): Date {
+  // Jeudi de la semaine 1 = premier jeudi de l'annee ISO.
+  const jan4 = new Date(Date.UTC(isoYear, 0, 4))
+  const jan4Day = jan4.getUTCDay() || 7 // lun=1..dim=7
+  const week1Monday = new Date(jan4)
+  week1Monday.setUTCDate(jan4.getUTCDate() - jan4Day + 1)
+  const monday = new Date(week1Monday)
+  monday.setUTCDate(week1Monday.getUTCDate() + (isoWeek - 1) * 7)
+  return monday
+}
+
 export type WeeklyActivity = {
   started_at: string
   sport_type: string | null

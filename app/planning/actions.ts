@@ -10,7 +10,7 @@ import {
   PLAN_WEEK_SYSTEM,
   type ProposedWeek,
 } from '@/lib/ai/plan-week-generator'
-import { isoWeekStart, isoWeekNumber } from '@/lib/analytics'
+import { isoWeekStart, isoWeekNumber, isoWeekMonday } from '@/lib/analytics'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -222,6 +222,245 @@ Propose une semaine coherente pour Eva. Reponds en JSON conforme au schema.`
   })
 
   return planWeek.id
+}
+
+/**
+ * Reajuste une semaine en cours : garde les jours passes (deja realises
+ * ou manques), remplace les jours restants (aujourd'hui inclus) par une
+ * nouvelle proposition. Le coach voit ce qui a ete fait dans la semaine
+ * jusqu'a today, ce qui reste a planifier, et re-tient compte des
+ * contraintes.
+ */
+export async function readjustPlanWeek(formData: FormData): Promise<void> {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const planWeekId = String(formData.get('plan_week_id') ?? '').trim()
+  if (!planWeekId) throw new Error('plan_week_id manquant')
+  const userHint = String(formData.get('user_hint') ?? '').trim()
+
+  const { data: pw, error: pwErr } = await supabase
+    .from('plan_weeks')
+    .select('id, iso_year, iso_week, phase, target_race_id, notes')
+    .eq('id', planWeekId)
+    .maybeSingle()
+  if (pwErr) throw new Error(`readjust read plan_week: ${pwErr.message}`)
+  if (!pw) redirect('/planning')
+
+  const monday = isoWeekMonday(pw.iso_year, pw.iso_week)
+  const sunday = new Date(monday.getTime() + 6 * DAY_MS)
+  const mondayIso = monday.toISOString().slice(0, 10)
+  const sundayIso = sunday.toISOString().slice(0, 10)
+  const todayIso = new Date().toISOString().slice(0, 10)
+
+  if (todayIso > sundayIso) {
+    redirect(
+      `/planning?erreur=` +
+        encodeURIComponent(
+          'Cette semaine est deja terminee. Genere plutot les semaines a venir.',
+        ),
+    )
+  }
+
+  const [{ data: existingSessions }, { data: activities }] = await Promise.all([
+    supabase
+      .from('planned_sessions')
+      .select(
+        'id, scheduled_on, session_type, intent, target_duration_s, target_distance_m, target_elevation_m, is_club',
+      )
+      .eq('plan_week_id', planWeekId)
+      .order('scheduled_on', { ascending: true }),
+    supabase
+      .from('activities')
+      .select('name, sport_type, started_at, distance_m, elevation_gain_m, moving_time_s')
+      .gte('started_at', mondayIso)
+      .lte('started_at', new Date(sunday.getTime() + DAY_MS).toISOString().slice(0, 10))
+      .order('started_at', { ascending: true }),
+  ])
+
+  const sessionsPast = (existingSessions ?? []).filter((s) => s.scheduled_on < todayIso)
+  const sessionsFuture = (existingSessions ?? []).filter((s) => s.scheduled_on >= todayIso)
+
+  type WeekAct = NonNullable<typeof activities>[number]
+  const activitiesByDate = new Map<string, WeekAct[]>()
+  for (const a of activities ?? []) {
+    const key = a.started_at.slice(0, 10)
+    const list = activitiesByDate.get(key) ?? []
+    list.push(a)
+    activitiesByDate.set(key, list)
+  }
+
+  const doneLines: string[] = []
+  for (const s of sessionsPast) {
+    const acts = activitiesByDate.get(s.scheduled_on) ?? []
+    const doneStr =
+      acts.length === 0
+        ? 'MANQUEE (aucune activite ce jour)'
+        : acts
+            .map(
+              (a) =>
+                `${a.name ?? a.sport_type ?? '—'} · ${a.distance_m ? Math.round(a.distance_m / 100) / 10 + ' km' : '—'} · ${a.moving_time_s ? Math.round(a.moving_time_s / 60) + ' min' : '—'}`,
+            )
+            .join(' + ')
+    doneLines.push(
+      `- ${s.scheduled_on} · plan : ${s.session_type}${s.is_club ? ' (club)' : ''} — ${s.intent ?? '—'} → ${doneStr}`,
+    )
+  }
+  // Activites du week-end passe qui n'ont pas de planned_session : les
+  // signaler aussi pour la lecture de charge.
+  for (const [dateIso, acts] of activitiesByDate.entries()) {
+    if (dateIso >= todayIso) continue
+    const hasPlanned = sessionsPast.some((s) => s.scheduled_on === dateIso)
+    if (hasPlanned) continue
+    for (const a of acts) {
+      doneLines.push(
+        `- ${dateIso} · hors plan : ${a.name ?? a.sport_type ?? '—'} · ${a.distance_m ? Math.round(a.distance_m / 100) / 10 + ' km' : '—'} · ${a.moving_time_s ? Math.round(a.moving_time_s / 60) + ' min' : '—'}`,
+      )
+    }
+  }
+
+  const remainingDays: string[] = []
+  for (
+    let d = new Date(Math.max(monday.getTime(), new Date(todayIso + 'T12:00:00Z').getTime()));
+    d.getTime() <= sunday.getTime();
+    d = new Date(d.getTime() + DAY_MS)
+  ) {
+    remainingDays.push(d.toISOString().slice(0, 10))
+  }
+
+  const constraintsBlock = await buildTargetWeekConstraintsBlock(
+    supabase,
+    mondayIso,
+    sundayIso,
+  )
+  const context = await buildCoachContext(supabase)
+  const hintBlock = userHint
+    ? `\n## Notes d'Eva pour ce reajustement\n${userHint}\n\nConsignes explicites : respecte-les tant qu'elles ne contredisent pas les regles non negociables.\n`
+    : ''
+
+  const userPrompt = `## Semaine en cours a reajuster
+Semaine ISO ${pw.iso_week}/${pw.iso_year} · du ${mondayIso} au ${sundayIso} · aujourd'hui = ${todayIso}
+Phase actuelle : ${pw.phase}
+${constraintsBlock}${hintBlock}
+## Ce qui a ete fait ou manque jusqu'a aujourd'hui
+${doneLines.length > 0 ? doneLines.join('\n') : 'Rien de particulier.'}
+
+## Jours restants a planifier (aujourd'hui inclus)
+${remainingDays.join(', ')}
+
+## Contexte general
+${context}
+
+Propose une adaptation de la semaine. Contraintes de format :
+- Chaque session dans le JSON DOIT avoir une date parmi les jours restants listes ci-dessus.
+- Ne repropose PAS de session pour les dates passees, elles sont figees.
+- Tiens compte de la charge deja effectuee, des seances manquees, et des activites hors plan.
+Reponds en JSON conforme au schema.`
+
+  let parsed: ProposedWeek
+  try {
+    const response = await anthropic().messages.create({
+      model: COACH_MODEL,
+      max_tokens: 4000,
+      system: PLAN_WEEK_SYSTEM,
+      thinking: { type: 'adaptive' },
+      output_config: {
+        format: { type: 'json_schema', schema: PLAN_WEEK_SCHEMA },
+      },
+      messages: [{ role: 'user', content: userPrompt }],
+    })
+    const text = response.content.find((b) => b.type === 'text')
+    if (!text || text.type !== 'text') {
+      throw new Error('Reponse sans bloc texte')
+    }
+    parsed = JSON.parse(text.text) as ProposedWeek
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    redirect(
+      `/planning?erreur=` +
+        encodeURIComponent(`Reajustement impossible : ${msg}`),
+    )
+  }
+
+  // On ne garde que les sessions dans la fenetre restante.
+  const newFutureSessions = parsed.sessions.filter(
+    (s) => s.date >= todayIso && s.date <= sundayIso,
+  )
+
+  // Supprimer les planned_sessions futures existantes, inserer les
+  // nouvelles. Les passees restent intactes.
+  const futureIds = sessionsFuture.map((s) => s.id)
+  if (futureIds.length > 0) {
+    const { error: delErr } = await supabase
+      .from('planned_sessions')
+      .delete()
+      .in('id', futureIds)
+    if (delErr) throw new Error(`delete future sessions: ${delErr.message}`)
+  }
+  if (newFutureSessions.length > 0) {
+    const rows = newFutureSessions.map((s) => ({
+      tenant_id: user.id,
+      plan_week_id: planWeekId,
+      scheduled_on: s.date,
+      session_type: s.session_type,
+      intent: s.intent,
+      target_distance_m: s.distance_km != null ? Math.round(s.distance_km * 1000) : null,
+      target_elevation_m: s.elevation_m,
+      target_duration_s: s.duration_min != null ? s.duration_min * 60 : null,
+      is_club: s.is_club,
+    }))
+    const { error: insErr } = await supabase.from('planned_sessions').insert(rows)
+    if (insErr) throw new Error(`insert future sessions: ${insErr.message}`)
+  }
+
+  // Recalcul des cibles de la semaine (passees + nouvelles futures).
+  const allSessions = [
+    ...sessionsPast.map((s) => ({
+      distance_m: s.target_distance_m,
+      elevation_m: s.target_elevation_m,
+    })),
+    ...newFutureSessions.map((s) => ({
+      distance_m: s.distance_km != null ? Math.round(s.distance_km * 1000) : null,
+      elevation_m: s.elevation_m,
+    })),
+  ]
+  const targetDistanceM = allSessions.reduce((sum, s) => sum + (s.distance_m ?? 0), 0)
+  const targetElevationM = allSessions.reduce(
+    (sum, s) => sum + (s.elevation_m ?? 0),
+    0,
+  )
+
+  await supabase
+    .from('plan_weeks')
+    .update({
+      phase: parsed.phase,
+      notes: parsed.notes_week,
+      target_sessions: allSessions.length,
+      target_distance_m: targetDistanceM || null,
+      target_elevation_m: targetElevationM || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', planWeekId)
+
+  await supabase.from('plan_revisions').insert({
+    tenant_id: user.id,
+    plan_week_id: planWeekId,
+    trigger: 'demande_utilisateur',
+    author: 'ai',
+    summary: `Reajustement de la semaine ${pw.iso_week}/${pw.iso_year} le ${todayIso} : ${sessionsPast.length} seance${sessionsPast.length > 1 ? 's' : ''} passee${sessionsPast.length > 1 ? 's' : ''} conservee${sessionsPast.length > 1 ? 's' : ''}, ${newFutureSessions.length} nouvelle${newFutureSessions.length > 1 ? 's' : ''} a venir.`,
+    diff: {
+      readjusted_at: todayIso,
+      kept_past_count: sessionsPast.length,
+      removed_future: sessionsFuture,
+      inserted_future: parsed,
+      user_hint: userHint || null,
+    },
+  })
+
+  revalidatePath('/planning')
+  revalidatePath('/aujourdhui')
+  redirect(`/planning?readjusted=${planWeekId}`)
 }
 
 /**

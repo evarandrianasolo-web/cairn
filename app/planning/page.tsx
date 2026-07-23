@@ -8,9 +8,9 @@ import {
   formatDplus,
   formatDuree,
 } from '@/lib/format'
-import { isoWeekStart, isoWeekNumber } from '@/lib/analytics'
+import { isoWeekStart, isoWeekNumber, isoWeekMonday } from '@/lib/analytics'
 import { IconFlag } from '@/components/icons'
-import { deletePlanWeek, generatePlanWeek } from './actions'
+import { deletePlanWeek, generatePlanWeek, readjustPlanWeek } from './actions'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -71,13 +71,13 @@ type PlanWeekRow = {
 export default async function PlanningPage({
   searchParams,
 }: {
-  searchParams: Promise<{ erreur?: string; generated?: string }>
+  searchParams: Promise<{ erreur?: string; generated?: string; readjusted?: string }>
 }) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { erreur, generated } = await searchParams
+  const { erreur, generated, readjusted } = await searchParams
 
   const now = new Date()
   const currentMonday = isoWeekStart(now)
@@ -133,6 +133,12 @@ export default async function PlanningPage({
         <p className="rounded-data border border-lichen/40 bg-craie px-3 py-2 text-sm text-lichen">
           Semaine générée. Relis ci-dessous, tu peux la supprimer si elle ne
           convient pas.
+        </p>
+      )}
+      {readjusted && (
+        <p className="rounded-data border border-lichen/40 bg-craie px-3 py-2 text-sm text-lichen">
+          Semaine réajustée à partir d&apos;aujourd&apos;hui. Les jours passés
+          sont conservés.
         </p>
       )}
 
@@ -204,18 +210,6 @@ export default async function PlanningPage({
 
 const WEEKDAY_LABELS = ['lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'] as const
 
-/** Retourne le lundi 00:00 UTC de la semaine ISO donnee (annee, numero). */
-function isoWeekMonday(isoYear: number, isoWeek: number): Date {
-  // Jeudi de la semaine 1 = premier jeudi de l'annee ISO.
-  const jan4 = new Date(Date.UTC(isoYear, 0, 4))
-  const jan4Day = jan4.getUTCDay() || 7 // lun=1..dim=7
-  const week1Monday = new Date(jan4)
-  week1Monday.setUTCDate(jan4.getUTCDate() - jan4Day + 1)
-  const monday = new Date(week1Monday)
-  monday.setUTCDate(week1Monday.getUTCDate() + (isoWeek - 1) * 7)
-  return monday
-}
-
 function WeekBlock({
   week,
   activitiesByDate,
@@ -226,6 +220,11 @@ function WeekBlock({
   todayIso: string
 }) {
   const monday = isoWeekMonday(week.iso_year, week.iso_week)
+  const sundayIso = new Date(monday.getTime() + 6 * DAY_MS)
+    .toISOString()
+    .slice(0, 10)
+  const mondayIso = monday.toISOString().slice(0, 10)
+  const isInProgress = todayIso >= mondayIso && todayIso <= sundayIso
   // On construit les 7 jours lundi -> dimanche ; chaque jour porte
   // les 0..N seances qui tombent dessus et les 0..N activites reelles
   // rapportees depuis Strava.
@@ -260,15 +259,29 @@ function WeekBlock({
               : ''}
           </p>
         </div>
-        <form action={deletePlanWeek}>
-          <input type="hidden" name="plan_week_id" value={week.id} />
-          <button
-            type="submit"
-            className="text-xs text-granit hover:text-schiste"
-          >
-            supprimer
-          </button>
-        </form>
+        <div className="flex items-center gap-3">
+          {isInProgress && (
+            <form action={readjustPlanWeek}>
+              <input type="hidden" name="plan_week_id" value={week.id} />
+              <button
+                type="submit"
+                title="Régénère les jours à partir d'aujourd'hui en tenant compte de ce qui a été fait"
+                className="rounded-data border border-granit/40 px-2 py-1 text-xs text-schiste hover:bg-brume"
+              >
+                réajuster à partir d&apos;aujourd&apos;hui
+              </button>
+            </form>
+          )}
+          <form action={deletePlanWeek}>
+            <input type="hidden" name="plan_week_id" value={week.id} />
+            <button
+              type="submit"
+              className="text-xs text-granit hover:text-schiste"
+            >
+              supprimer
+            </button>
+          </form>
+        </div>
       </div>
 
       {week.notes && (
