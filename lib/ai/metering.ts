@@ -16,6 +16,7 @@ export type AiCallFeature =
   | 'fueling-from-notes'
   | 'plan-generate'
   | 'plan-readjust'
+  | 'activity-analysis'
 
 const PRICES_USD_PER_TOKEN: Record<string, { input: number; output: number }> = {
   // Prix officiels Opus 4.8 : $5/M input, $25/M output.

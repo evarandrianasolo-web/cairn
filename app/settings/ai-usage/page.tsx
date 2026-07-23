@@ -11,6 +11,7 @@ const FEATURE_LABEL: Record<string, string> = {
   'fueling-from-notes': 'Fueling depuis notes',
   'plan-generate': 'Génération plan',
   'plan-readjust': 'Réajustement plan',
+  'activity-analysis': 'Analyse activité',
 }
 
 const DATE_FMT = new Intl.DateTimeFormat('fr-FR', {

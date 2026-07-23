@@ -17,6 +17,7 @@ import {
   type RaceForMatch,
 } from '@/lib/race-matching'
 import {
+  analyzeActivity,
   linkActivityToRace,
   proposeDebriefFromActivity,
   proposeFuelingFromActivity,
@@ -76,7 +77,7 @@ export default async function ActivityDetailPage({
   const { data: activity } = await supabase
     .from('activities')
     .select(
-      'id, name, description, sport_type, started_at, distance_m, elevation_gain_m, moving_time_s, elapsed_time_s, avg_pace_s_per_km, avg_cadence, strava_activity_id, user_notes, race_id, todo_dismissed',
+      'id, name, description, sport_type, started_at, distance_m, elevation_gain_m, moving_time_s, elapsed_time_s, avg_pace_s_per_km, avg_cadence, strava_activity_id, user_notes, race_id, todo_dismissed, ai_summary, ai_summary_at',
     )
     .eq('id', id)
     .maybeSingle()
@@ -164,6 +165,53 @@ export default async function ActivityDetailPage({
           value={activity.avg_cadence != null ? `${activity.avg_cadence}` : '—'}
         />
       </div>
+
+      <section>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
+            Analyse
+          </h2>
+          {activity.ai_summary_at && (
+            <span className="tabular font-mono text-[10px] text-granit">
+              généré le {formatDateCourte(activity.ai_summary_at)}
+            </span>
+          )}
+        </div>
+        {activity.ai_summary ? (
+          <div className="mt-2 rounded-data border border-brume bg-craie p-3">
+            <p className="whitespace-pre-line text-sm text-schiste">
+              {activity.ai_summary}
+            </p>
+            <form action={analyzeActivity} className="mt-3">
+              <input type="hidden" name="activity_id" value={activity.id} />
+              <button
+                type="submit"
+                className="text-xs text-granit underline hover:text-schiste"
+              >
+                regénérer l&apos;analyse
+              </button>
+            </form>
+          </div>
+        ) : (
+          <form action={analyzeActivity} className="mt-2">
+            <input type="hidden" name="activity_id" value={activity.id} />
+            <button
+              type="submit"
+              className="rounded-surface border border-schiste bg-schiste px-3 py-2 text-sm font-medium text-craie"
+            >
+              Analyser cette séance
+            </button>
+            <p className="mt-2 text-xs italic text-granit">
+              Résumé court (2 à 4 phrases). Pour une analyse poussée, ouvre une
+              conversation avec le{' '}
+              <Link href="/coach" className="underline">
+                coach
+              </Link>
+              .
+            </p>
+          </form>
+        )}
+      </section>
 
       <section>
         <h2 className="font-mono text-xs uppercase tracking-wide text-granit">

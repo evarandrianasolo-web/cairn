@@ -17,6 +17,7 @@ import {
   FUELING_SCHEMA,
   type ParsedFueling,
 } from '@/lib/ai/fueling-from-notes'
+import { ACTIVITY_ANALYSIS_SYSTEM } from '@/lib/ai/activity-analysis'
 import {
   formatDistance,
   formatDplus,
@@ -24,6 +25,119 @@ import {
   formatGoalTime,
   formatRaceDate,
 } from '@/lib/format'
+
+/**
+ * Genere / regenere un resume d'analyse court d'une activite.
+ * Persistee dans activities.ai_summary. Chaque appel ecrase la version
+ * precedente -- pas d'historique par activite pour V0.
+ */
+export async function analyzeActivity(formData: FormData): Promise<void> {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const activityId = String(formData.get('activity_id') ?? '').trim()
+  if (!activityId) throw new Error('activity_id manquant')
+
+  const { data: activity, error: readErr } = await supabase
+    .from('activities')
+    .select(
+      'id, name, sport_type, started_at, distance_m, elevation_gain_m, moving_time_s, elapsed_time_s, avg_pace_s_per_km, avg_cadence, user_notes, race_id',
+    )
+    .eq('id', activityId)
+    .maybeSingle()
+  if (readErr) throw new Error(`analyze read: ${readErr.message}`)
+  if (!activity) redirect('/activities')
+
+  // Course associee eventuellement (contexte).
+  let raceLine = ''
+  if (activity.race_id) {
+    const { data: race } = await supabase
+      .from('races')
+      .select('name, priority, goal_time_s, result_time_s')
+      .eq('id', activity.race_id)
+      .maybeSingle()
+    if (race) {
+      raceLine = `Course associee : ${race.name} (${race.priority})`
+      if (race.goal_time_s) raceLine += ` · objectif ${formatGoalTime(race.goal_time_s)}`
+      if (race.result_time_s) raceLine += ` · resultat ${formatDuree(race.result_time_s)}`
+      raceLine += '\n'
+    }
+  }
+
+  // Fueling associe eventuellement.
+  let fuelingLine = ''
+  const { data: fueling } = await supabase
+    .from('fueling_logs')
+    .select('intake_pattern, carbs_g, carbs_g_per_hour, issue, notes, products')
+    .eq('activity_id', activityId)
+    .maybeSingle()
+  if (fueling) {
+    const parts: string[] = [`Fueling logue : prise ${fueling.intake_pattern}`]
+    if (fueling.carbs_g_per_hour != null) parts.push(`${fueling.carbs_g_per_hour} g/h`)
+    else if (fueling.carbs_g != null && activity.moving_time_s) {
+      const gph = (fueling.carbs_g * 3600) / activity.moving_time_s
+      parts.push(`~${Math.round(gph)} g/h derive`)
+    }
+    if (fueling.issue && fueling.issue !== 'aucun') parts.push(`incident ${fueling.issue}`)
+    fuelingLine = parts.join(' · ') + '\n'
+  }
+
+  const paceLine = activity.avg_pace_s_per_km
+    ? `Allure moyenne : ${Math.floor(activity.avg_pace_s_per_km / 60)}:${String(Math.round(activity.avg_pace_s_per_km % 60)).padStart(2, '0')}/km\n`
+    : ''
+
+  const notesLine = activity.user_notes
+    ? `Notes personnelles :\n${activity.user_notes.trim()}\n`
+    : ''
+
+  const userPrompt = `## Seance a analyser
+Date : ${activity.started_at}
+Nom : ${activity.name ?? '(sans titre)'}
+Sport : ${activity.sport_type ?? '—'}
+Distance : ${formatDistance(activity.distance_m)}
+Denivele : ${formatDplus(activity.elevation_gain_m)}
+Duree : ${formatDuree(activity.moving_time_s)}
+${paceLine}${raceLine}${fuelingLine}${notesLine}
+Produis un resume d'analyse en 2 a 4 phrases.`
+
+  let summary = ''
+  try {
+    const response = await anthropic().messages.create({
+      model: COACH_MODEL,
+      max_tokens: 800,
+      system: ACTIVITY_ANALYSIS_SYSTEM,
+      thinking: { type: 'adaptive' },
+      messages: [{ role: 'user', content: userPrompt }],
+    })
+    await logAnthropicCall(supabase, user.id, 'activity-analysis', COACH_MODEL, response.usage, {
+      activity_id: activityId,
+    })
+    const text = response.content.find((b) => b.type === 'text')
+    if (!text || text.type !== 'text') throw new Error('Reponse sans bloc texte')
+    summary = text.text.trim()
+    if (!summary) throw new Error('Reponse vide')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    redirect(
+      `/activities/${activityId}?erreur=` +
+        encodeURIComponent(`Analyse impossible : ${msg}`),
+    )
+  }
+
+  const { error: upErr } = await supabase
+    .from('activities')
+    .update({
+      ai_summary: summary,
+      ai_summary_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', activityId)
+  if (upErr) throw new Error(`analyze update: ${upErr.message}`)
+
+  revalidatePath(`/activities/${activityId}`)
+  redirect(`/activities/${activityId}?ok=1`)
+}
 
 /**
  * Ecarte / restaure une raison d'apparition dans /activites?filter=todo.
