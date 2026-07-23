@@ -129,13 +129,19 @@ type PlanWeekRow = {
 export default async function PlanningPage({
   searchParams,
 }: {
-  searchParams: Promise<{ erreur?: string; generated?: string; readjusted?: string }>
+  searchParams: Promise<{
+    erreur?: string
+    generated?: string
+    readjusted?: string
+    vue?: string
+  }>
 }) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { erreur, generated, readjusted } = await searchParams
+  const { erreur, generated, readjusted, vue } = await searchParams
+  const gridView = vue === 'grille'
 
   const now = new Date()
   const currentMonday = isoWeekStart(now)
@@ -278,10 +284,43 @@ export default async function PlanningPage({
         </form>
       </section>
 
+      {rows.length > 0 && (
+        <div className="flex gap-2 text-sm">
+          <Link
+            href="/planning"
+            className={
+              'rounded-data border px-3 py-1 ' +
+              (!gridView
+                ? 'border-schiste bg-schiste text-craie'
+                : 'border-granit/40 text-schiste hover:bg-brume')
+            }
+          >
+            Liste
+          </Link>
+          <Link
+            href="/planning?vue=grille"
+            className={
+              'rounded-data border px-3 py-1 ' +
+              (gridView
+                ? 'border-schiste bg-schiste text-craie'
+                : 'border-granit/40 text-schiste hover:bg-brume')
+            }
+          >
+            Grille
+          </Link>
+        </div>
+      )}
+
       {rows.length === 0 ? (
         <p className="text-sm text-granit">
           Aucune semaine planifiée pour l&apos;instant.
         </p>
+      ) : gridView ? (
+        <PlanningGrid
+          weeks={rows}
+          activitiesByDate={activitiesByDate}
+          todayIso={todayIso}
+        />
       ) : (
         <div className="space-y-4">
           {rows.map((w) => (
@@ -436,6 +475,176 @@ function isoYearOf(d: Date): number {
   week1Monday.setUTCDate(jan4.getUTCDate() - jan4Day + 1)
   if (d.getTime() < week1Monday.getTime()) return d.getUTCFullYear() - 1
   return d.getUTCFullYear()
+}
+
+/**
+ * Vue grille : tableau semaines × jours a la Notion. Utile pour scanner
+ * plusieurs semaines d'un coup. Sur mobile, scroll horizontal via
+ * overflow-x-auto ; la premiere colonne (semaine) reste normale --
+ * pas de sticky pour rester simple V0.
+ */
+function PlanningGrid({
+  weeks,
+  activitiesByDate,
+  todayIso,
+}: {
+  weeks: PlanWeekRow[]
+  activitiesByDate: Map<string, ActivityMatch[]>
+  todayIso: string
+}) {
+  return (
+    <div className="overflow-x-auto rounded-data border border-brume bg-craie">
+      <div
+        className="grid gap-px bg-brume p-px text-xs"
+        style={{
+          gridTemplateColumns: '90px repeat(7, minmax(140px, 1fr))',
+          minWidth: 90 + 7 * 140,
+        }}
+      >
+        {/* Header row */}
+        <div className="bg-craie p-2 font-mono text-[10px] uppercase text-granit">
+          semaine
+        </div>
+        {WEEKDAY_LABELS.map((d) => (
+          <div
+            key={d}
+            className="bg-craie p-2 font-mono text-[10px] uppercase text-granit"
+          >
+            {d}
+          </div>
+        ))}
+
+        {/* Rows */}
+        {weeks.map((w) => {
+          const monday = isoWeekMonday(w.iso_year, w.iso_week)
+          return (
+            <GridRow
+              key={w.id}
+              week={w}
+              monday={monday}
+              activitiesByDate={activitiesByDate}
+              todayIso={todayIso}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function GridRow({
+  week,
+  monday,
+  activitiesByDate,
+  todayIso,
+}: {
+  week: PlanWeekRow
+  monday: Date
+  activitiesByDate: Map<string, ActivityMatch[]>
+  todayIso: string
+}) {
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday)
+    d.setUTCDate(monday.getUTCDate() + i)
+    const dateIso = d.toISOString().slice(0, 10)
+    return {
+      dateIso,
+      sessions: week.planned_sessions.filter((s) => s.scheduled_on === dateIso),
+      activities: activitiesByDate.get(dateIso) ?? [],
+      isPast: dateIso < todayIso,
+      isToday: dateIso === todayIso,
+    }
+  })
+  return (
+    <>
+      <div className="bg-craie p-2">
+        <div className="font-mono text-[10px] uppercase text-granit">
+          S{week.iso_week}
+        </div>
+        <div className="tabular mt-1 text-[10px] text-granit">
+          {formatDateCourte(monday.toISOString())}
+        </div>
+        <div className="mt-1 font-mono text-[9px] uppercase text-granit">
+          {PHASE_LABEL[week.phase] ?? week.phase}
+        </div>
+      </div>
+      {days.map((day) => (
+        <GridCell key={day.dateIso} day={day} />
+      ))}
+    </>
+  )
+}
+
+function GridCell({
+  day,
+}: {
+  day: {
+    dateIso: string
+    sessions: PlanWeekRow['planned_sessions']
+    activities: ActivityMatch[]
+    isPast: boolean
+    isToday: boolean
+  }
+}) {
+  const s = day.sessions[0]
+  const bg = day.isToday ? 'bg-brume' : 'bg-craie'
+  const isKey = s && KEY_SESSION_TYPES.has(s.session_type)
+  return (
+    <div className={`${bg} p-2`}>
+      {s ? (
+        <>
+          <div className="flex items-center gap-1">
+            {isKey && <DeuxBarres size={10} />}
+            <span
+              className={
+                'font-mono text-[10px] uppercase ' +
+                (isKey ? 'font-medium text-balise' : 'text-schiste')
+              }
+            >
+              {SESSION_TYPE_LABEL[s.session_type] ?? s.session_type}
+            </span>
+            {s.is_club && (
+              <span className="rounded-data border border-granit/35 px-1 font-mono text-[9px] uppercase text-granit">
+                club
+              </span>
+            )}
+          </div>
+          {s.intent && (
+            <p className="mt-1 text-[11px] leading-snug text-schiste">
+              {s.intent}
+            </p>
+          )}
+          <p className="tabular mt-1 text-[10px] text-granit">
+            {s.target_duration_s ? formatDuree(s.target_duration_s) : ''}
+            {s.target_distance_m
+              ? ` · ${formatDistance(s.target_distance_m)}`
+              : ''}
+            {s.target_elevation_m
+              ? ` · ${formatDplus(s.target_elevation_m)}`
+              : ''}
+          </p>
+        </>
+      ) : (
+        <span className="text-[11px] italic text-granit">repos</span>
+      )}
+      {day.activities.length > 0 && (
+        <div className="mt-2 border-t border-brume pt-1">
+          {day.activities.slice(0, 2).map((a) => (
+            <Link
+              key={a.id}
+              href={`/activities/${a.id}`}
+              className="flex items-baseline gap-1 text-[10px] text-lichen hover:underline"
+            >
+              <IconFlag size={9} className="shrink-0" />
+              <span className="truncate text-schiste">
+                {a.name ?? a.sport_type ?? '—'}
+              </span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function WeekBlock({
