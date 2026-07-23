@@ -81,6 +81,13 @@ export async function addConstraint(formData: FormData) {
       }
       recurrenceRule = buildWeeklyRRule(days, interval)
       if (!recurrenceRule) failWith('Coche au moins un jour de la semaine.')
+      const anchor = String(formData.get('anchor_date') ?? '').trim()
+      if (!anchor) {
+        failWith(
+          "Date d'ancrage requise pour une récurrence intervalle > 1 (sans quoi l'alternance n'est pas calculable).",
+        )
+      }
+      startsOn = anchor
     } else if (freq === 'monthly') {
       const dom = Number.parseInt(String(formData.get('day_of_month') ?? ''), 10)
       recurrenceRule = buildMonthlyRRule(dom)
@@ -155,6 +162,13 @@ export async function updateConstraint(formData: FormData) {
       }
       recurrenceRule = buildWeeklyRRule(days, interval)
       if (!recurrenceRule) failWith('Coche au moins un jour de la semaine.')
+      const anchor = String(formData.get('anchor_date') ?? '').trim()
+      if (!anchor) {
+        failWith(
+          "Date d'ancrage requise pour une récurrence intervalle > 1 (sans quoi l'alternance n'est pas calculable).",
+        )
+      }
+      startsOn = anchor
     } else if (freq === 'monthly') {
       const dom = Number.parseInt(String(formData.get('day_of_month') ?? ''), 10)
       recurrenceRule = buildMonthlyRRule(dom)

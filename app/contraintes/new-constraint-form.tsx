@@ -183,19 +183,35 @@ export function NewConstraintForm() {
           </label>
 
           {frequency === 'weekly-N' && (
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-granit">
-                Intervalle <span className="text-granit/60">— toutes les N semaines</span>
-              </span>
-              <input
-                name="interval"
-                type="number"
-                min={2}
-                max={12}
-                defaultValue={2}
-                className="w-24 rounded-data border border-granit/35 bg-craie px-2 py-1.5 text-base tabular text-schiste focus:border-schiste focus:outline-none"
-              />
-            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-granit">
+                  Intervalle <span className="text-granit/60">— toutes les N semaines</span>
+                </span>
+                <input
+                  name="interval"
+                  type="number"
+                  min={2}
+                  max={12}
+                  defaultValue={2}
+                  className="rounded-data border border-granit/35 bg-craie px-2 py-1.5 text-base tabular text-schiste focus:border-schiste focus:outline-none"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-granit">
+                  Ancrage <span className="text-granit/60">— 1er jour du cycle</span>
+                </span>
+                <input
+                  required
+                  name="anchor_date"
+                  type="date"
+                  className="rounded-data border border-granit/35 bg-craie px-2 py-1.5 text-base tabular text-schiste focus:border-schiste focus:outline-none"
+                />
+                <span className="text-xs italic text-granit">
+                  Sans ancrage, l&apos;alternance n&apos;est pas calculable.
+                </span>
+              </label>
+            </div>
           )}
 
           {showDaysPicker && (
