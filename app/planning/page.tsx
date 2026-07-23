@@ -101,17 +101,13 @@ export default async function PlanningPage({
 
       <section className="rounded-data border border-brume bg-craie p-4">
         <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
-          Générer la semaine prochaine
+          Prochaine semaine à planifier
         </h2>
-        <p className="mt-2 text-sm text-schiste">
-          Semaine {nextIsoWeek} · du{' '}
-          <span className="tabular">{formatDateCourte(nextMonday.toISOString())}</span>{' '}
-          au{' '}
-          <span className="tabular">
-            {formatDateCourte(
-              new Date(nextMonday.getTime() + 6 * DAY_MS).toISOString(),
-            )}
-          </span>
+        <p className="mt-2 text-sm text-granit">
+          Le coach IA propose une semaine (lundi → dimanche) à partir de tes
+          4 dernières semaines, ta prochaine course A, tes contraintes
+          actives et tes derniers débriefs / logs fueling. Tu peux la
+          supprimer si elle ne convient pas.
         </p>
         <form action={generatePlanWeek} className="mt-3">
           <input type="hidden" name="target_monday" value={targetMondayIso} />
@@ -119,13 +115,15 @@ export default async function PlanningPage({
             type="submit"
             className="rounded-surface bg-schiste px-4 py-2 text-sm font-medium text-craie"
           >
-            Proposer cette semaine
+            Générer la semaine {nextIsoWeek} —{' '}
+            <span className="tabular">
+              {formatDateCourte(nextMonday.toISOString())} →{' '}
+              {formatDateCourte(
+                new Date(nextMonday.getTime() + 6 * DAY_MS).toISOString(),
+              )}
+            </span>
           </button>
         </form>
-        <p className="mt-2 text-xs italic text-granit">
-          Basé sur tes 4 dernières semaines, ta prochaine course A, tes
-          contraintes actives et tes derniers débriefs / logs fueling.
-        </p>
       </section>
 
       {rows.length === 0 ? (
