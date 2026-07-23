@@ -25,20 +25,20 @@ export async function revokeAndPurgeFc(): Promise<void> {
 
   await recordConsent(supabase, user.id, 'fc_stockage', false)
 
-  const { data: purged, error: upErr } = await supabase
+  // activity_health ne se modifie pas (aucune policy UPDATE) : la
+  // regle produit est "creation ou suppression, jamais modification".
+  // Une revocation efface donc les lignes entieres -- c'est plus propre
+  // qu'un UPDATE vers NULL puisque la table ne contient QUE des
+  // champs de sante.
+  const { data: purged, error: delErr } = await supabase
     .from('activity_health')
-    .update({
-      avg_hr: null,
-      max_hr: null,
-      relative_effort: null,
-      updated_at: new Date().toISOString(),
-    })
+    .delete()
     .not('avg_hr', 'is', null)
     .select('activity_id')
-  if (upErr) {
+  if (delErr) {
     redirect(
       '/settings/donnees-sante?erreur=' +
-        encodeURIComponent(`Purge FC impossible : ${upErr.message}`),
+        encodeURIComponent(`Purge FC impossible : ${delErr.message}`),
     )
   }
 
@@ -101,10 +101,15 @@ export async function grantAndFetchFc(): Promise<void> {
         })
         .filter((r): r is NonNullable<typeof r> => r !== null)
       if (healthRows.length > 0) {
-        const { error: upErr } = await supabase
+        // activity_health immuable : delete + insert plutot qu'upsert.
+        await supabase
           .from('activity_health')
-          .upsert(healthRows, { onConflict: 'activity_id' })
-        if (!upErr) {
+          .delete()
+          .in('activity_id', healthRows.map((r) => r.activity_id))
+        const { error: insErr } = await supabase
+          .from('activity_health')
+          .insert(healthRows)
+        if (!insErr) {
           refetched = healthRows.length
           await supabase.from('health_access_logs').insert(
             healthRows.map((r) => ({
