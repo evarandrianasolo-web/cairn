@@ -352,29 +352,36 @@ export default async function ActivityDetailPage({
             </Link>
           </div>
         ) : isLongEnough ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {hasNotes && (
-              <form action={proposeFuelingFromActivity}>
-                <input type="hidden" name="activity_id" value={activity.id} />
-                <button
-                  type="submit"
-                  className="rounded-surface border border-schiste bg-schiste px-3 py-2 text-sm font-medium text-craie"
-                >
-                  Proposer un fueling à partir de mes notes
-                </button>
-              </form>
-            )}
-            <Link
-              href={`/fueling?activity=${activity.id}`}
-              className={
-                'inline-block rounded-surface px-3 py-2 text-sm font-medium ' +
-                (hasNotes
-                  ? 'border border-granit/35 text-schiste'
-                  : 'border border-schiste bg-schiste text-craie')
-              }
-            >
-              Logger manuellement
-            </Link>
+          <div className="mt-3">
+            <div className="flex flex-wrap gap-2">
+              {hasNotes && (
+                <form action={proposeFuelingFromActivity}>
+                  <input type="hidden" name="activity_id" value={activity.id} />
+                  <button
+                    type="submit"
+                    className="rounded-surface border border-schiste bg-schiste px-3 py-2 text-sm font-medium text-craie"
+                  >
+                    Proposer un fueling à partir de mes notes
+                  </button>
+                </form>
+              )}
+              <Link
+                href={`/fueling?activity=${activity.id}`}
+                className={
+                  'inline-block rounded-surface px-3 py-2 text-sm font-medium ' +
+                  (hasNotes
+                    ? 'border border-granit/35 text-schiste'
+                    : 'border border-schiste bg-schiste text-craie')
+                }
+              >
+                Logger manuellement
+              </Link>
+            </div>
+            <p className="mt-2 text-xs text-granit">
+              {hasNotes
+                ? 'Le coach lit tes notes ci-dessous et te propose un log structuré à valider.'
+                : 'Astuce : décris tes ravitos dans les notes ci-dessous, le fueling pourra alors être prérempli automatiquement.'}
+            </p>
           </div>
         ) : (
           <p className="mt-2 text-sm text-granit">
