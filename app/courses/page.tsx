@@ -28,11 +28,14 @@ export default async function CoursesPage({
   const { data: races } = await supabase
     .from('races')
     .select(
-      'id, name, race_date, location, distance_m, elevation_gain_m, priority, status, goal_time_s, result_time_s, notes',
+      'id, name, race_date, location, distance_m, elevation_gain_m, priority, status, goal_time_s, result_time_s, notes, activities(id)',
     )
     .order('race_date', { ascending: true })
 
-  const rows = (races ?? []) as Race[]
+  const rows = (races ?? []).map((r: RaceRaw): Race => ({
+    ...r,
+    linkedActivityId: r.activities?.[0]?.id ?? null,
+  })) as Race[]
   const today = startOfTodayIso()
   const aVenir = rows.filter((r) => r.race_date >= today)
   const passees = rows.filter((r) => r.race_date < today)
@@ -90,7 +93,7 @@ export default async function CoursesPage({
   )
 }
 
-type Race = {
+type RaceRaw = {
   id: string
   name: string
   race_date: string
@@ -102,6 +105,11 @@ type Race = {
   goal_time_s: number | null
   result_time_s: number | null
   notes: string | null
+  activities: { id: string }[] | null
+}
+
+type Race = Omit<RaceRaw, 'activities'> & {
+  linkedActivityId: string | null
 }
 
 function RaceItem({ race }: { race: Race }) {
@@ -114,7 +122,17 @@ function RaceItem({ race }: { race: Race }) {
         </span>
         <div className="flex-1">
           <p className="text-base text-schiste">
-            {race.name}
+            {race.linkedActivityId ? (
+              <Link
+                href={`/activities/${race.linkedActivityId}`}
+                className="hover:underline"
+                title="Ouvrir l'activité liée"
+              >
+                {race.name}
+              </Link>
+            ) : (
+              race.name
+            )}
             {isDone && (
               <span
                 className="ml-2 rounded-data border border-lichen/50 px-1.5 py-0.5 font-mono text-xs uppercase text-lichen"
