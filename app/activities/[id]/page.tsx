@@ -12,7 +12,11 @@ import {
   formatRaceDate,
 } from '@/lib/format'
 import { candidatesForActivity, type RaceForMatch } from '@/lib/race-matching'
-import { linkActivityToRace, updateActivityNotes } from '../actions'
+import {
+  linkActivityToRace,
+  proposeDebriefFromActivity,
+  updateActivityNotes,
+} from '../actions'
 
 const INTAKE_LABELS = {
   rien: 'rien',
@@ -47,14 +51,14 @@ export default async function ActivityDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ ok?: string; linked?: string }>
+  searchParams: Promise<{ ok?: string; linked?: string; erreur?: string }>
 }) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
   const { id } = await params
-  const { ok, linked } = await searchParams
+  const { ok, linked, erreur } = await searchParams
 
   const { data: activity } = await supabase
     .from('activities')
@@ -66,7 +70,7 @@ export default async function ActivityDetailPage({
 
   if (!activity) redirect('/activities')
 
-  const [fuelingRes, linkedRaceRes, allRacesRes] = await Promise.all([
+  const [fuelingRes, linkedRaceRes, allRacesRes, existingDebriefRes] = await Promise.all([
     supabase
       .from('fueling_logs')
       .select(
@@ -88,11 +92,20 @@ export default async function ActivityDetailPage({
       .select('id, name, race_date, distance_m')
       .order('race_date', { ascending: false })
       .limit(100),
+    activity.race_id
+      ? supabase
+          .from('debriefs')
+          .select('id')
+          .eq('race_id', activity.race_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ])
 
   const fueling = fuelingRes.data
   const linkedRace = linkedRaceRes.data as LinkedRace | null
   const allRaces = (allRacesRes.data ?? []) as RaceForMatch[]
+  const existingDebriefId = (existingDebriefRes.data as { id: string } | null)?.id ?? null
+  const hasNotes = (activity.user_notes ?? '').trim().length > 0
 
   const isLongEnough =
     activity.moving_time_s != null && activity.moving_time_s >= LONG_SECS
@@ -119,6 +132,12 @@ export default async function ActivityDetailPage({
       </div>
 
       <ScreenTitle>{activity.name ?? 'Séance sans titre'}</ScreenTitle>
+
+      {erreur && (
+        <p className="rounded-data border border-ocre/40 bg-craie px-3 py-2 text-sm text-ocre">
+          {erreur}
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3 rounded-data bg-craie p-4 sm:grid-cols-4">
         <Stat label="Sport" value={activity.sport_type ?? '—'} plain />
@@ -170,6 +189,37 @@ export default async function ActivityDetailPage({
             {linked === '1' && (
               <p className="mt-2 text-xs text-granit">Liaison enregistrée.</p>
             )}
+
+            <div className="mt-3 border-t border-granit/20 pt-3">
+              {existingDebriefId ? (
+                <Link
+                  href={`/debriefs?edit=${existingDebriefId}`}
+                  className="inline-block text-xs text-granit hover:text-schiste"
+                >
+                  voir le débrief →
+                </Link>
+              ) : hasNotes ? (
+                <form action={proposeDebriefFromActivity}>
+                  <input type="hidden" name="activity_id" value={activity.id} />
+                  <button
+                    type="submit"
+                    className="rounded-surface border border-schiste bg-schiste px-3 py-2 text-sm font-medium text-craie"
+                  >
+                    Proposer un débrief à partir de mes notes
+                  </button>
+                  <p className="mt-1 text-xs text-granit">
+                    Le coach lit tes notes ci-dessous, puis te propose un
+                    débrief structuré à valider.
+                  </p>
+                </form>
+              ) : (
+                <p className="text-xs text-granit">
+                  Ajoute des notes personnelles ci-dessous pour permettre
+                  l&apos;analyse et proposer un débrief.
+                </p>
+              )}
+            </div>
+
             <form action={linkActivityToRace} className="mt-3">
               <input type="hidden" name="activity_id" value={activity.id} />
               <input type="hidden" name="race_id" value="" />
