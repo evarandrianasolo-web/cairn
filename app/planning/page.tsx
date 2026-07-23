@@ -21,6 +21,30 @@ import { deletePlanWeek, generatePlanWeek, readjustPlanWeek } from './actions'
 // couleur d'erreur (cf. CLAUDE.md).
 const KEY_SESSION_TYPES = new Set(['longue', 'course'])
 
+// Couleur de la barre pour la mini-timeline B (hauteur = duree, couleur
+// = type). On regroupe par intention :
+// - balise (rouge)  : jalons de la semaine (longue, course)
+// - ocre            : intensite (seuil, vma, cote)
+// - lichen (vert)   : recuperation (recup, rando)
+// - schiste         : endurance de base
+// - granit          : renfo, faisable hors course a pied
+const SESSION_BAR_COLOR: Record<string, string> = {
+  longue: 'bg-balise',
+  course: 'bg-balise',
+  seuil: 'bg-ocre',
+  vma: 'bg-ocre',
+  cote: 'bg-ocre',
+  recup: 'bg-lichen',
+  rando: 'bg-lichen',
+  endurance: 'bg-schiste',
+  renfo: 'bg-granit',
+}
+
+/** Duree de reference pour normaliser les hauteurs dans la mini-timeline
+ * hebdo. 3 h de longue = 100 %. Coupe visuellement les valeurs > 3 h
+ * mais garde la lisibilite des seances courtes (30 min = 17 %). */
+const MINI_TIMELINE_REF_S = 3 * 60 * 60
+
 // Session types de course a pied (non renfo, non rando) qui exigent une
 // activite Run/TrailRun pour etre consideres comme realises.
 const RUN_SESSION_TYPES = new Set([
@@ -325,6 +349,52 @@ function WeekBlock({
       {week.notes && (
         <p className="mt-2 text-sm text-schiste italic">{week.notes}</p>
       )}
+
+      {/* Mini-timeline hebdo — hauteur = durée cible, couleur = type. */}
+      <div className="mt-3">
+        <div className="flex h-9 items-end gap-1">
+          {days.map(({ dateIso, sessions }) => {
+            const s = sessions[0]
+            const dur = s?.target_duration_s ?? 0
+            const heightPct =
+              dur > 0
+                ? Math.max(8, Math.min(100, (dur / MINI_TIMELINE_REF_S) * 100))
+                : 0
+            const color = s ? SESSION_BAR_COLOR[s.session_type] ?? 'bg-granit' : ''
+            const label = s
+              ? `${SESSION_TYPE_LABEL[s.session_type] ?? s.session_type} · ${dur ? formatDuree(dur) : '—'}`
+              : 'repos'
+            return (
+              <div
+                key={dateIso}
+                className="flex-1"
+                style={{ height: dur > 0 ? `${heightPct}%` : '2px' }}
+                title={`${dateIso} · ${label}`}
+              >
+                <div
+                  className={
+                    (dur > 0 ? color : 'bg-granit/25') +
+                    ' h-full w-full rounded-t-sm'
+                  }
+                />
+              </div>
+            )
+          })}
+        </div>
+        <div className="mt-1 flex gap-1">
+          {days.map(({ dateIso, isToday }, i) => (
+            <span
+              key={dateIso}
+              className={
+                'flex-1 text-center font-mono text-[10px] ' +
+                (isToday ? 'font-medium text-schiste' : 'text-granit')
+              }
+            >
+              {WEEKDAY_LABELS[i]}
+            </span>
+          ))}
+        </div>
+      </div>
 
       {missedCount > 0 && (
         <div className="mt-3 flex items-center gap-3 rounded-data border border-ocre/40 bg-craie px-3 py-2 text-sm text-ocre">
