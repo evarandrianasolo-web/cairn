@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
-import Link from 'next/link'
 import { Archivo, Instrument_Sans, Martian_Mono } from 'next/font/google'
+import { AppNav } from '@/components/app-nav'
 import './globals.css'
 
 // Archivo variable — axe wdth ouvert pour supporter le stretch 125 imposé
@@ -41,44 +41,7 @@ export default function RootLayout({
       className={`h-full antialiased ${archivo.variable} ${instrument.variable} ${martian.variable}`}
     >
       <body className="min-h-full flex flex-col font-sans">
-        <header className="border-b border-granit/20 bg-craie">
-          <nav className="mx-auto flex max-w-5xl items-center gap-6 px-6 py-3 text-sm">
-            <Link href="/" className="font-display text-lg text-schiste">
-              Cairn
-            </Link>
-            <div className="flex-1" />
-            <Link href="/aujourdhui" className="text-schiste hover:underline">
-              Aujourd&apos;hui
-            </Link>
-            <Link href="/planning" className="text-schiste hover:underline">
-              Planning
-            </Link>
-            <Link href="/coach" className="text-schiste hover:underline">
-              Coach
-            </Link>
-            <Link href="/activities" className="text-schiste hover:underline">
-              Activités
-            </Link>
-            <Link href="/dashboard" className="text-schiste hover:underline">
-              Dashboard
-            </Link>
-            <Link href="/courses" className="text-schiste hover:underline">
-              Courses
-            </Link>
-            <Link href="/debriefs" className="text-schiste hover:underline">
-              Débriefs
-            </Link>
-            <Link href="/contraintes" className="text-schiste hover:underline">
-              Contraintes
-            </Link>
-            <Link href="/fueling" className="text-schiste hover:underline">
-              Fueling
-            </Link>
-            <Link href="/settings/strava" className="text-granit hover:underline">
-              Strava
-            </Link>
-          </nav>
-        </header>
+        <AppNav />
         <div className="flex-1">{children}</div>
       </body>
     </html>
