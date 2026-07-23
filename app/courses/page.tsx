@@ -122,17 +122,13 @@ function RaceItem({ race }: { race: Race }) {
         </span>
         <div className="flex-1">
           <p className="text-base text-schiste">
-            {race.linkedActivityId ? (
-              <Link
-                href={`/activities/${race.linkedActivityId}`}
-                className="hover:underline"
-                title="Ouvrir l'activité liée"
-              >
-                {race.name}
-              </Link>
-            ) : (
-              race.name
-            )}
+            <Link
+              href={`/courses/${race.id}`}
+              className="hover:underline"
+              title="Voir la fiche course"
+            >
+              {race.name}
+            </Link>
             {isDone && (
               <span
                 className="ml-2 rounded-data border border-lichen/50 px-1.5 py-0.5 font-mono text-xs uppercase text-lichen"
