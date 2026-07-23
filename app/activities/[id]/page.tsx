@@ -8,8 +8,11 @@ import {
   formatDistance,
   formatDplus,
   formatDuree,
+  formatGoalTime,
+  formatRaceDate,
 } from '@/lib/format'
-import { updateActivityNotes } from '../actions'
+import { candidatesForActivity, type RaceForMatch } from '@/lib/race-matching'
+import { linkActivityToRace, updateActivityNotes } from '../actions'
 
 const INTAKE_LABELS = {
   rien: 'rien',
@@ -27,37 +30,69 @@ const ISSUE_LABELS = {
 
 const LONG_SECS = 90 * 60
 
+type LinkedRace = {
+  id: string
+  name: string
+  race_date: string
+  location: string | null
+  distance_m: number | null
+  elevation_gain_m: number | null
+  priority: 'A' | 'B' | 'C'
+  goal_time_s: number | null
+  result_time_s: number | null
+}
+
 export default async function ActivityDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ ok?: string }>
+  searchParams: Promise<{ ok?: string; linked?: string }>
 }) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
   const { id } = await params
-  const { ok } = await searchParams
+  const { ok, linked } = await searchParams
 
   const { data: activity } = await supabase
     .from('activities')
     .select(
-      'id, name, description, sport_type, started_at, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km, avg_cadence, strava_activity_id, user_notes',
+      'id, name, description, sport_type, started_at, distance_m, elevation_gain_m, moving_time_s, elapsed_time_s, avg_pace_s_per_km, avg_cadence, strava_activity_id, user_notes, race_id',
     )
     .eq('id', id)
     .maybeSingle()
 
   if (!activity) redirect('/activities')
 
-  const { data: fueling } = await supabase
-    .from('fueling_logs')
-    .select(
-      'id, intake_pattern, carbs_g, carbs_g_per_hour, products, issue, post_window_fed, notes',
-    )
-    .eq('activity_id', activity.id)
-    .maybeSingle()
+  const [fuelingRes, linkedRaceRes, allRacesRes] = await Promise.all([
+    supabase
+      .from('fueling_logs')
+      .select(
+        'id, intake_pattern, carbs_g, carbs_g_per_hour, products, issue, post_window_fed, notes',
+      )
+      .eq('activity_id', activity.id)
+      .maybeSingle(),
+    activity.race_id
+      ? supabase
+          .from('races')
+          .select(
+            'id, name, race_date, location, distance_m, elevation_gain_m, priority, goal_time_s, result_time_s',
+          )
+          .eq('id', activity.race_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    supabase
+      .from('races')
+      .select('id, name, race_date, distance_m')
+      .order('race_date', { ascending: false })
+      .limit(100),
+  ])
+
+  const fueling = fuelingRes.data
+  const linkedRace = linkedRaceRes.data as LinkedRace | null
+  const allRaces = (allRacesRes.data ?? []) as RaceForMatch[]
 
   const isLongEnough =
     activity.moving_time_s != null && activity.moving_time_s >= LONG_SECS
@@ -65,6 +100,9 @@ export default async function ActivityDetailPage({
   const stravaUrl = activity.strava_activity_id
     ? `https://www.strava.com/activities/${activity.strava_activity_id}`
     : null
+
+  const candidates = candidatesForActivity(activity, allRaces)
+  const bestCandidate = candidates[0] ?? null
 
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-6">
@@ -93,6 +131,120 @@ export default async function ActivityDetailPage({
           value={activity.avg_cadence != null ? `${activity.avg_cadence}` : '—'}
         />
       </div>
+
+      <section>
+        <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
+          Course
+        </h2>
+
+        {linkedRace ? (
+          <div className="mt-3 rounded-data border border-brume bg-craie px-3 py-3">
+            <p className="text-base text-schiste">
+              <span className="mr-2 rounded-data border border-granit/35 px-1.5 py-0.5 font-mono text-xs uppercase text-granit">
+                {linkedRace.priority}
+              </span>
+              {linkedRace.name}
+              {linkedRace.location && (
+                <span className="text-granit"> · {linkedRace.location}</span>
+              )}
+            </p>
+            <p className="tabular mt-1 text-xs text-granit">
+              {formatRaceDate(linkedRace.race_date)}
+              {linkedRace.distance_m != null &&
+                ` · prévu ${formatDistance(linkedRace.distance_m)}`}
+              {linkedRace.elevation_gain_m != null &&
+                ` · ${formatDplus(linkedRace.elevation_gain_m)}`}
+            </p>
+            <p className="tabular mt-2 text-sm text-schiste">
+              temps réel{' '}
+              <span className="font-medium">
+                {formatDuree(activity.elapsed_time_s ?? activity.moving_time_s)}
+              </span>
+              {linkedRace.goal_time_s != null && (
+                <span className="text-granit">
+                  {' '}
+                  · objectif {formatGoalTime(linkedRace.goal_time_s)}
+                </span>
+              )}
+            </p>
+            {linked === '1' && (
+              <p className="mt-2 text-xs text-granit">Liaison enregistrée.</p>
+            )}
+            <form action={linkActivityToRace} className="mt-3">
+              <input type="hidden" name="activity_id" value={activity.id} />
+              <input type="hidden" name="race_id" value="" />
+              <button
+                type="submit"
+                className="text-xs text-granit hover:text-schiste"
+              >
+                dissocier
+              </button>
+            </form>
+          </div>
+        ) : (
+          <div className="mt-3 space-y-2 rounded-data border border-brume bg-craie px-3 py-3">
+            <p className="text-sm text-granit">
+              Cette activité correspond-elle à une course de ta liste ?
+            </p>
+            {bestCandidate && (
+              <p className="text-xs italic text-granit">
+                Suggéré : <span className="text-schiste">{bestCandidate.name}</span>{' '}
+                — {formatRaceDate(bestCandidate.race_date)}
+                {bestCandidate.dateDiffDays === 0
+                  ? ' (même jour)'
+                  : ` (à ${Math.round(bestCandidate.dateDiffDays * 24)} h près)`}
+                {bestCandidate.distanceRatio != null &&
+                  ` · écart distance ${Math.round(bestCandidate.distanceRatio * 100)} %`}
+              </p>
+            )}
+            <form action={linkActivityToRace} className="flex flex-wrap gap-2">
+              <input type="hidden" name="activity_id" value={activity.id} />
+              <select
+                name="race_id"
+                defaultValue={bestCandidate?.id ?? ''}
+                className="flex-1 rounded-data border border-granit/35 bg-craie px-2 py-1.5 text-base text-schiste focus:border-schiste focus:outline-none"
+              >
+                <option value="" disabled>
+                  Choisir une course…
+                </option>
+                {candidates.length > 0 && (
+                  <optgroup label="Candidates (même jour ±1)">
+                    {candidates.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {formatRaceDate(c.race_date)} — {c.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {allRaces.length > 0 && (
+                  <optgroup label="Toutes les courses">
+                    {allRaces.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {formatRaceDate(r.race_date)} — {r.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              <button
+                type="submit"
+                className="rounded-surface bg-schiste px-3 py-2 text-sm font-medium text-craie"
+              >
+                Lier
+              </button>
+            </form>
+            {allRaces.length === 0 && (
+              <p className="text-xs text-granit">
+                Aucune course en base.{' '}
+                <Link href="/courses" className="underline">
+                  Ajouter une course
+                </Link>{' '}
+                d&apos;abord.
+              </p>
+            )}
+          </div>
+        )}
+      </section>
 
       {activity.description && (
         <section>

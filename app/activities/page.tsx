@@ -29,7 +29,7 @@ export default async function ActivitiesPage({
   const { data: activities, count } = await supabase
     .from('activities')
     .select(
-      'id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km, user_notes, fueling_logs(id)',
+      'id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km, user_notes, race_id, fueling_logs(id)',
       { count: 'exact' },
     )
     .order('started_at', { ascending: false })
@@ -89,6 +89,14 @@ export default async function ActivitiesPage({
                     <td className="max-w-xs truncate px-3 py-2 text-schiste">
                       <Link href={`/activities/${a.id}`} className="block">
                         {a.name ?? '—'}
+                        {a.race_id && (
+                          <span
+                            className="ml-2 text-xs text-granit"
+                            title="course"
+                          >
+                            🏁
+                          </span>
+                        )}
                         {a.user_notes && (
                           <span
                             className="ml-2 text-xs text-granit"

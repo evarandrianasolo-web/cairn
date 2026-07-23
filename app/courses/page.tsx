@@ -5,6 +5,7 @@ import { ScreenTitle } from '@/components/screen-title'
 import {
   formatDistance,
   formatDplus,
+  formatDuree,
   formatGoalTime,
   formatJMinus,
   formatRaceDate,
@@ -27,7 +28,7 @@ export default async function CoursesPage({
   const { data: races } = await supabase
     .from('races')
     .select(
-      'id, name, race_date, location, distance_m, elevation_gain_m, priority, status, goal_time_s, notes',
+      'id, name, race_date, location, distance_m, elevation_gain_m, priority, status, goal_time_s, result_time_s, notes',
     )
     .order('race_date', { ascending: true })
 
@@ -99,10 +100,12 @@ type Race = {
   priority: 'A' | 'B' | 'C'
   status: string | null
   goal_time_s: number | null
+  result_time_s: number | null
   notes: string | null
 }
 
 function RaceItem({ race }: { race: Race }) {
+  const isDone = race.status === 'terminee'
   return (
     <li className="rounded-data border border-brume bg-craie px-3 py-2">
       <div className="flex items-center gap-4">
@@ -110,7 +113,17 @@ function RaceItem({ race }: { race: Race }) {
           {race.priority}
         </span>
         <div className="flex-1">
-          <p className="text-base text-schiste">{race.name}</p>
+          <p className="text-base text-schiste">
+            {race.name}
+            {isDone && (
+              <span
+                className="ml-2 rounded-data border border-lichen/50 px-1.5 py-0.5 font-mono text-xs uppercase text-lichen"
+                title="course réalisée"
+              >
+                terminée
+              </span>
+            )}
+          </p>
           <p className="tabular text-xs text-granit">
             {formatRaceDate(race.race_date)}
             {race.location && ` · ${race.location}`}
@@ -124,11 +137,23 @@ function RaceItem({ race }: { race: Race }) {
             {formatDplus(race.elevation_gain_m)}
           </span>
         </div>
-        {race.goal_time_s != null && (
+        {race.result_time_s != null ? (
+          <span className="tabular hidden text-xs text-granit md:inline">
+            fait en <span className="text-schiste">{formatDuree(race.result_time_s)}</span>
+            {race.goal_time_s != null && (
+              <>
+                {' '}
+                <span className="text-granit/70">
+                  (obj. {formatGoalTime(race.goal_time_s)})
+                </span>
+              </>
+            )}
+          </span>
+        ) : race.goal_time_s != null ? (
           <span className="tabular hidden text-xs text-granit md:inline">
             objectif <span className="text-schiste">{formatGoalTime(race.goal_time_s)}</span>
           </span>
-        )}
+        ) : null}
         <span className="tabular w-14 text-right text-sm text-granit">
           {formatJMinus(race.race_date)}
         </span>
