@@ -10,6 +10,11 @@ import {
   type ParsedDebrief,
 } from '@/lib/ai/debrief-from-notes'
 import {
+  FUELING_FROM_NOTES_SYSTEM,
+  FUELING_SCHEMA,
+  type ParsedFueling,
+} from '@/lib/ai/fueling-from-notes'
+import {
   formatDistance,
   formatDplus,
   formatDuree,
@@ -254,4 +259,122 @@ export async function proposeDebriefFromActivity(formData: FormData) {
 
   revalidatePath('/debriefs')
   redirect(`/debriefs?edit=${created.id}`)
+}
+
+/**
+ * Analyse les notes personnelles d'une activité longue pour en extraire
+ * un fueling log pré-rempli. Redirige vers /fueling?edit=<id> pour
+ * validation avant que ce soit considéré comme définitif par Eva.
+ * Rend explicites les mêmes garde-fous que dans le formulaire manuel :
+ * additif, jamais restrictif ; produits + grammes, jamais calories.
+ */
+export async function proposeFuelingFromActivity(formData: FormData) {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const activityId = String(formData.get('activity_id') ?? '').trim()
+  if (!activityId) throw new Error('activity_id manquant')
+
+  // 1. Charger l'activité + un éventuel log existant.
+  const { data: activity, error: readErr } = await supabase
+    .from('activities')
+    .select(
+      'id, name, sport_type, started_at, distance_m, elevation_gain_m, moving_time_s, elapsed_time_s, user_notes',
+    )
+    .eq('id', activityId)
+    .maybeSingle()
+  if (readErr) throw new Error(`propose fueling read: ${readErr.message}`)
+  if (!activity) throw new Error('activity introuvable')
+
+  if (!activity.user_notes || activity.user_notes.trim().length === 0) {
+    redirect(
+      `/activities/${activityId}?erreur=` +
+        encodeURIComponent(
+          'Ajoute des notes personnelles pour permettre l\'analyse fueling.',
+        ),
+    )
+  }
+
+  const { data: existing } = await supabase
+    .from('fueling_logs')
+    .select('id')
+    .eq('activity_id', activityId)
+    .maybeSingle()
+
+  if (existing) {
+    // Un log existe déjà — on ouvre en édition plutôt que de créer un doublon.
+    redirect(`/fueling?edit=${existing.id}`)
+  }
+
+  // 2. Construire le prompt utilisateur avec le contexte de l'activité + notes.
+  const realTimeS = activity.elapsed_time_s ?? activity.moving_time_s
+  const lines: string[] = []
+  lines.push(`## Séance`)
+  if (activity.name) lines.push(`- ${activity.name}`)
+  lines.push(
+    `- ${activity.sport_type ?? '—'} · ${formatDistance(activity.distance_m)} · ` +
+      `${formatDplus(activity.elevation_gain_m)} · durée ${formatDuree(realTimeS)}`,
+  )
+  lines.push('')
+  lines.push(`## Notes brutes d'Eva`)
+  lines.push(activity.user_notes!.trim())
+
+  const userPrompt = lines.join('\n')
+
+  // 3. Appel Anthropic avec structured outputs.
+  let parsed: ParsedFueling
+  try {
+    const response = await anthropic().messages.create({
+      model: COACH_MODEL,
+      max_tokens: 2000,
+      system: FUELING_FROM_NOTES_SYSTEM,
+      thinking: { type: 'adaptive' },
+      output_config: {
+        format: { type: 'json_schema', schema: FUELING_SCHEMA },
+      },
+      messages: [{ role: 'user', content: userPrompt }],
+    })
+    const textBlock = response.content.find((b) => b.type === 'text')
+    if (!textBlock || textBlock.type !== 'text') {
+      throw new Error('Réponse sans bloc texte')
+    }
+    parsed = JSON.parse(textBlock.text) as ParsedFueling
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    redirect(
+      `/activities/${activityId}?erreur=` +
+        encodeURIComponent(`Analyse fueling impossible : ${msg}`),
+    )
+  }
+
+  // 4. Créer le log en base et rediriger vers l'édition.
+  const productsText = parsed.products_text?.trim() ?? ''
+  const products = productsText ? { text: productsText } : null
+
+  const { data: created, error: insertErr } = await supabase
+    .from('fueling_logs')
+    .insert({
+      tenant_id: user.id,
+      activity_id: activityId,
+      intake_pattern: parsed.intake_pattern,
+      carbs_g:
+        parsed.carbs_g != null && parsed.carbs_g >= 0
+          ? Math.round(parsed.carbs_g)
+          : null,
+      carbs_g_per_hour:
+        parsed.carbs_g_per_hour != null && parsed.carbs_g_per_hour >= 0
+          ? parsed.carbs_g_per_hour
+          : null,
+      products,
+      issue: parsed.issue,
+      post_window_fed: parsed.post_window_fed,
+      notes: parsed.notes?.trim() || null,
+    })
+    .select('id')
+    .single()
+  if (insertErr) throw new Error(`propose insert fueling: ${insertErr.message}`)
+
+  revalidatePath('/fueling')
+  redirect(`/fueling?edit=${created.id}`)
 }
