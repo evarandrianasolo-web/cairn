@@ -11,6 +11,7 @@ import {
   type ProposedWeek,
 } from '@/lib/ai/plan-week-generator'
 import { isoWeekStart, isoWeekNumber, isoWeekMonday } from '@/lib/analytics'
+import { phaseFor, PHASE_INTENT } from '@/lib/periodization'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -130,13 +131,14 @@ async function generateOneWeek(
     targetMondayIso,
     sundayIso,
   )
+  const periodizationBlock = await buildPeriodizationBlock(supabase, targetMondayIso)
   const context = await buildCoachContext(supabase)
   const hintBlock = userHint
     ? `\n## Notes d'Eva pour cette semaine\n${userHint}\n\nCes notes sont des consignes explicites : respecte-les tant qu'elles ne contredisent pas les regles non negociables.\n`
     : ''
   const userPrompt = `## Semaine a planifier
 ${cible}
-${constraintsBlock}${hintBlock}
+${periodizationBlock}${constraintsBlock}${hintBlock}
 ## Contexte general
 ${context}
 
@@ -334,6 +336,7 @@ export async function readjustPlanWeek(formData: FormData): Promise<void> {
     mondayIso,
     sundayIso,
   )
+  const periodizationBlock = await buildPeriodizationBlock(supabase, mondayIso)
   const context = await buildCoachContext(supabase)
   const hintBlock = userHint
     ? `\n## Notes d'Eva pour ce reajustement\n${userHint}\n\nConsignes explicites : respecte-les tant qu'elles ne contredisent pas les regles non negociables.\n`
@@ -342,7 +345,7 @@ export async function readjustPlanWeek(formData: FormData): Promise<void> {
   const userPrompt = `## Semaine en cours a reajuster
 Semaine ISO ${pw.iso_week}/${pw.iso_year} · du ${mondayIso} au ${sundayIso} · aujourd'hui = ${todayIso}
 Phase actuelle : ${pw.phase}
-${constraintsBlock}${hintBlock}
+${periodizationBlock}${constraintsBlock}${hintBlock}
 ## Ce qui a ete fait ou manque jusqu'a aujourd'hui
 ${doneLines.length > 0 ? doneLines.join('\n') : 'Rien de particulier.'}
 
@@ -535,6 +538,40 @@ function dateFr(d: Date): string {
     month: 'short',
     timeZone: 'UTC',
   })
+}
+
+/**
+ * Bloc periodisation : rappelle au coach la phase attendue pour la
+ * semaine cible en fonction de la course A a venir. Complete le contexte
+ * general en donnant une intention haute sans dicter le contenu -- le
+ * coach reste libre de sortir de la phase si les contraintes le justifient.
+ */
+async function buildPeriodizationBlock(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  mondayIso: string,
+): Promise<string> {
+  const todayIso = new Date().toISOString().slice(0, 10)
+  const { data: raceA } = await supabase
+    .from('races')
+    .select('name, race_date')
+    .eq('priority', 'A')
+    .gte('race_date', todayIso)
+    .order('race_date', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  if (!raceA) return ''
+
+  const phase = phaseFor(mondayIso, raceA.race_date)
+  const raceDate = new Date(raceA.race_date + 'T12:00:00Z').getTime()
+  const monday = new Date(mondayIso + 'T12:00:00Z').getTime()
+  const daysUntilRace = Math.round((raceDate - monday) / (24 * 60 * 60 * 1000))
+  const intent = PHASE_INTENT[phase]
+
+  return `\n## Periodisation retroplan
+Course A : ${raceA.name} (${raceA.race_date}), soit ${daysUntilRace >= 0 ? `J-${daysUntilRace}` : `J+${-daysUntilRace}`} depuis le debut de cette semaine.
+Phase attendue : ${phase} -- ${intent}.
+
+Utilise cette phase comme intention haute. Tu peux en devier si les contraintes ou notes d'Eva l'exigent, mais alors mentionne-le explicitement dans notes_week.\n`
 }
 
 /**

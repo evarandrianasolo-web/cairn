@@ -12,6 +12,7 @@ import { isoWeekStart, isoWeekNumber, isoWeekMonday } from '@/lib/analytics'
 import { isRaceEligibleSport } from '@/lib/race-matching'
 import { IconFlag } from '@/components/icons'
 import { DeuxBarres } from '@/components/marks/deux-barres'
+import { phaseFor } from '@/lib/periodization'
 import { deletePlanWeek, generatePlanWeek, readjustPlanWeek } from './actions'
 
 // Types consideres comme 'jalons' de la semaine : c'est autour d'eux
@@ -400,12 +401,13 @@ function RetroplanMacro({
           const isToday = c.mondayIso === isoWeekStart(new Date(todayIso + 'T12:00:00Z'))
             .toISOString()
             .slice(0, 10)
+          const expectedPhase = phaseFor(c.mondayIso, nextRaceA.race_date)
           const bg = c.isRaceWeek
             ? 'bg-balise'
             : c.pw
               ? PHASE_BG[c.pw.phase] ?? 'bg-granit/30'
-              : 'bg-granit/15'
-          const heightPx = c.isRaceWeek ? 44 : c.pw ? 33 : 18
+              : `${PHASE_BG[expectedPhase] ?? 'bg-granit/15'} opacity-45`
+          const heightPx = c.isRaceWeek ? 44 : c.pw ? 33 : 22
           return (
             <div
               key={c.mondayIso}
@@ -415,7 +417,7 @@ function RetroplanMacro({
                   ? `S${c.isoWeek} · ${nextRaceA.name}`
                   : c.pw
                     ? `S${c.isoWeek} · ${PHASE_LABEL[c.pw.phase] ?? c.pw.phase}`
-                    : `S${c.isoWeek} · à planifier`
+                    : `S${c.isoWeek} · à planifier (${PHASE_LABEL[phaseFor(c.mondayIso, nextRaceA.race_date)] ?? phaseFor(c.mondayIso, nextRaceA.race_date)})`
               }
             >
               {isToday && (
