@@ -46,6 +46,7 @@ export async function buildCoachContext(
     constraintsRes,
     lastFuelingRes,
     lastDebriefRes,
+    goalsRes,
   ] = await Promise.all([
     supabase.from('athletes').select('display_name, timezone').maybeSingle(),
     // Toutes les activités des 12 dernières semaines pour l'agrégation.
@@ -102,6 +103,11 @@ export async function buildCoachContext(
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from('training_goals')
+      .select('label, area, target_date, notes')
+      .eq('status', 'active')
+      .order('created_at', { ascending: false }),
   ])
 
   const weekly = aggregateByWeek(weeklyRes.data ?? [], WEEKS_AGGREGATED)
@@ -110,6 +116,12 @@ export async function buildCoachContext(
   const constraints = constraintsRes.data ?? []
   const lastFueling = lastFuelingRes.data as LastFuelingRow | null
   const lastDebrief = lastDebriefRes.data as LastDebriefRow | null
+  const goals = (goalsRes.data ?? []) as {
+    label: string
+    area: string | null
+    target_date: string | null
+    notes: string | null
+  }[]
 
   const lines: string[] = []
   lines.push(`# Contexte Eva`)
@@ -224,6 +236,19 @@ export async function buildCoachContext(
     if (focus.length > 0) {
       lines.push(`  axes actifs :`)
       for (const ax of focus) lines.push(`    · ${ax}`)
+    }
+    lines.push('')
+  }
+
+  if (goals.length > 0) {
+    lines.push(`## Objectifs transversaux actifs`)
+    for (const g of goals) {
+      const areaPart = g.area ? ` [${g.area}]` : ''
+      const datePart = g.target_date
+        ? ` — échéance ${formatDateCourte(g.target_date)}`
+        : ''
+      lines.push(`- ${g.label}${areaPart}${datePart}`)
+      if (g.notes) lines.push(`  ${truncate(g.notes, 200)}`)
     }
     lines.push('')
   }

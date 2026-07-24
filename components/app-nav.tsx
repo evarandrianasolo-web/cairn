@@ -30,6 +30,7 @@ const SECTIONS: NavSection[] = [
     title: 'Ressources',
     items: [
       { href: '/courses', label: 'Courses' },
+      { href: '/objectifs', label: 'Objectifs' },
       { href: '/debriefs', label: 'Débriefs' },
       { href: '/contraintes', label: 'Contraintes' },
       { href: '/fueling', label: 'Fueling' },
