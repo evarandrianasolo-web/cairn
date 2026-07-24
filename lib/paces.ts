@@ -216,50 +216,142 @@ const CANONICAL_ROUTE = [
   { key: 'ref_marathon_s' as const, km: KM_MARATHON, label: 'Marathon' },
 ]
 
+export type ActivityRefLite = {
+  distance_m: number | null
+  elevation_gain_m: number | null
+  moving_time_s: number | null
+  avg_pace_s_per_km: number | null
+  started_at: string | null
+  name: string | null
+}
+
 /**
- * Enrichit les refs saisies avec les meilleurs temps de courses
- * terminees. On ne prend en compte que les courses route ou trail
- * peu vallonne (< 300 m D+ total, sinon Riegel devient absurde),
- * dans les 18 derniers mois. Riegel etend a une distance canonique
- * proche (tolerance +/- 15 %). Le meilleur temps entre saisie et
- * course l'emporte.
+ * Enrichit les refs saisies avec :
+ *   - les meilleurs temps de courses terminees (route ou trail plat,
+ *     < 300 m D+), Riegel adaptatif si distance proche d'une
+ *     canonique (5 / 10 / 21 / 42 km, +/- 15 %)
+ *   - les meilleurs temps deduits des activites recentes route/plates
+ *     (< 90 j, D+/km < 15, allure moyenne < 6:00/km = effort reel).
+ *     Cible : capter les fractionnes VMA / tempo / seuil recents qui
+ *     refletent mieux la forme actuelle qu'un ref saisi ancien.
+ *
+ * Le meilleur temps par distance canonique l'emporte -- si Eva a
+ * fait recemment une tempo 8 km a 4:35/km, l'equivalent 10 km via
+ * Riegel remplacera son 10 km saisi de janvier.
  */
-export function inferReferenceTimesFromRaces(
+export type InferenceSource = {
+  kind: 'race' | 'activity'
+  label: string | null
+  date: string | null
+  equivalentS: number
+}
+
+export function inferReferenceTimes(
   saved: ReferenceTimes,
   races: RaceLite[],
+  activities: ActivityRefLite[],
   now: Date = new Date(2000, 0, 1),
-): { refs: ReferenceTimes; inferred: Partial<Record<keyof ReferenceTimes, true>> } {
-  const cutoff = new Date(now.getTime() - 18 * 30 * 24 * 3600 * 1000)
+): {
+  refs: ReferenceTimes
+  inferred: Partial<Record<keyof ReferenceTimes, true>>
+  bestFromActivity: Partial<Record<keyof ReferenceTimes, InferenceSource>>
+} {
+  const cutoffRace = new Date(now.getTime() - 18 * 30 * 24 * 3600 * 1000)
+  const cutoffAct = new Date(now.getTime() - 90 * 24 * 3600 * 1000)
   const inferred: Partial<Record<keyof ReferenceTimes, true>> = {}
+  const bestFromActivity: Partial<Record<keyof ReferenceTimes, InferenceSource>> = {}
   const result: ReferenceTimes = { ...saved }
 
-  const eligible = races.filter(
+  const eligibleRaces = races.filter(
     (r) =>
       r.result_time_s != null &&
       r.result_time_s > 0 &&
       r.distance_m != null &&
       r.distance_m > 0 &&
       (r.elevation_gain_m ?? 0) < 300 &&
-      (!r.race_date || new Date(r.race_date) > cutoff),
+      (!r.race_date || new Date(r.race_date) > cutoffRace),
   )
+
+  // Activites "effort route" recentes : distance 5-25 km, D+/km bas,
+  // duree >= 30 min, allure moyenne dans [3:20 ; 6:00]/km. Le pace min
+  // filtre les donnees corrompues (GPS drift, arret montre) ; la duree
+  // min ecarte les warm-ups isoles et petits sprints ; le pace max
+  // ecarte les EF pures. Sur des seances fractionnees, avg_pace inclut
+  // les recuperations, donc l'extrapolation Riegel est intrinsequement
+  // conservatrice.
+  const eligibleActs = activities.filter((a) => {
+    if (
+      a.distance_m == null ||
+      a.distance_m < 5000 ||
+      a.distance_m > 25000 ||
+      a.moving_time_s == null ||
+      a.moving_time_s < 30 * 60
+    )
+      return false
+    const dPlusPerKm = ((a.elevation_gain_m ?? 0) * 1000) / a.distance_m
+    if (dPlusPerKm > 15) return false
+    const pace =
+      a.avg_pace_s_per_km ?? (a.moving_time_s / (a.distance_m / 1000))
+    if (pace < 200 || pace >= 360) return false
+    if (a.started_at && new Date(a.started_at) < cutoffAct) return false
+    return true
+  })
 
   for (const target of CANONICAL_ROUTE) {
     let best: number | null = result[target.key]
-    for (const r of eligible) {
+
+    for (const r of eligibleRaces) {
       const dKm = (r.distance_m as number) / 1000
       const ratio = dKm / target.km
       if (ratio < 0.85 || ratio > 1.15) continue
-      // Riegel : T2 = T1 * (D2/D1)^1.06
-      const equivalent = (r.result_time_s as number) * Math.pow(target.km / dKm, RIEGEL_EXP)
+      const equivalent =
+        (r.result_time_s as number) * Math.pow(target.km / dKm, RIEGEL_EXP)
       if (best == null || equivalent < best) {
         best = Math.round(equivalent)
         inferred[target.key] = true
       }
     }
+
+    let bestActEquiv: number | null = null
+    let bestActSource: InferenceSource | null = null
+    for (const a of eligibleActs) {
+      const dKm = (a.distance_m as number) / 1000
+      const ratio = dKm / target.km
+      // Tolerance plus large pour les activites (0.5-2x) : une VMA 8 km
+      // est un bon indicateur pour un 5 km comme un 10 km via Riegel.
+      if (ratio < 0.5 || ratio > 2) continue
+      const equivalent = Math.round(
+        (a.moving_time_s as number) * Math.pow(target.km / dKm, RIEGEL_EXP),
+      )
+      if (bestActEquiv == null || equivalent < bestActEquiv) {
+        bestActEquiv = equivalent
+        bestActSource = {
+          kind: 'activity',
+          label: a.name,
+          date: a.started_at ? a.started_at.slice(0, 10) : null,
+          equivalentS: equivalent,
+        }
+      }
+      if (best == null || equivalent < best) {
+        best = equivalent
+        inferred[target.key] = true
+      }
+    }
+    if (bestActSource) bestFromActivity[target.key] = bestActSource
+
     if (best != null) result[target.key] = best
   }
 
-  return { refs: result, inferred }
+  return { refs: result, inferred, bestFromActivity }
+}
+
+/** @deprecated use inferReferenceTimes(saved, races, [], now). */
+export function inferReferenceTimesFromRaces(
+  saved: ReferenceTimes,
+  races: RaceLite[],
+  now: Date = new Date(2000, 0, 1),
+): { refs: ReferenceTimes; inferred: Partial<Record<keyof ReferenceTimes, true>> } {
+  return inferReferenceTimes(saved, races, [], now)
 }
 
 // ------------------ Estimation temps course ------------------

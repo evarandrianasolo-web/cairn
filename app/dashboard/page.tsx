@@ -22,7 +22,7 @@ import {
   formatPaceZone,
   formatVerticalSpeed,
   hasReferenceTimes,
-  inferReferenceTimesFromRaces,
+  inferReferenceTimes,
 } from '@/lib/paces'
 
 const WEEK_COUNT = 13
@@ -93,7 +93,7 @@ export default async function DashboardPage() {
     supabase
       .from('activities')
       .select(
-        'started_at, sport_type, distance_m, elevation_gain_m, moving_time_s',
+        'name, started_at, sport_type, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km',
       )
       .gte('started_at', since.toISOString())
       .order('started_at', { ascending: false }),
@@ -179,13 +179,21 @@ export default async function DashboardPage() {
     ref_semi_s: athleteRow?.ref_semi_s ?? null,
     ref_marathon_s: athleteRow?.ref_marathon_s ?? null,
   }
-  const { refs, inferred } = inferReferenceTimesFromRaces(
+  const { refs, inferred } = inferReferenceTimes(
     savedRefs,
     races.map((r) => ({
       distance_m: r.distance_m,
       elevation_gain_m: r.elevation_gain_m,
       result_time_s: r.result_time_s,
       race_date: r.race_date,
+    })),
+    activities.map((a) => ({
+      distance_m: a.distance_m,
+      elevation_gain_m: a.elevation_gain_m,
+      moving_time_s: a.moving_time_s,
+      avg_pace_s_per_km: (a as { avg_pace_s_per_km?: number | null }).avg_pace_s_per_km ?? null,
+      started_at: a.started_at,
+      name: (a as { name?: string | null }).name ?? null,
     })),
     new Date(),
   )

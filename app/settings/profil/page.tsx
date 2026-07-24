@@ -8,7 +8,7 @@ import {
   formatTime,
   formatVerticalSpeed,
   hasReferenceTimes,
-  inferReferenceTimesFromRaces,
+  inferReferenceTimes,
   KM_LABEL,
 } from '@/lib/paces'
 import { updateReferenceTimes } from './actions'
@@ -44,7 +44,7 @@ export default async function ProfilPage({
         .limit(20),
       supabase
         .from('activities')
-        .select('distance_m, elevation_gain_m, moving_time_s')
+        .select('name, started_at, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km')
         .gte('started_at', since90d),
     ])
 
@@ -54,13 +54,21 @@ export default async function ProfilPage({
     ref_semi_s: athlete?.ref_semi_s ?? null,
     ref_marathon_s: athlete?.ref_marathon_s ?? null,
   }
-  const { refs, inferred } = inferReferenceTimesFromRaces(
+  const { refs, inferred } = inferReferenceTimes(
     savedRefs,
     (doneRaces ?? []).map((r) => ({
       distance_m: r.distance_m,
       elevation_gain_m: r.elevation_gain_m,
       result_time_s: r.result_time_s,
       race_date: r.race_date,
+    })),
+    (recentActs ?? []).map((a) => ({
+      distance_m: a.distance_m,
+      elevation_gain_m: a.elevation_gain_m,
+      moving_time_s: a.moving_time_s,
+      avg_pace_s_per_km: (a as { avg_pace_s_per_km?: number | null }).avg_pace_s_per_km ?? null,
+      started_at: (a as { started_at?: string | null }).started_at ?? null,
+      name: (a as { name?: string | null }).name ?? null,
     })),
     new Date(),
   )

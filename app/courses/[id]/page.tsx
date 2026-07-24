@@ -16,7 +16,7 @@ import {
   estimateRaceTime,
   formatPace,
   formatVerticalSpeed,
-  inferReferenceTimesFromRaces,
+  inferReferenceTimes,
   type SimilarEffort,
 } from '@/lib/paces'
 
@@ -100,7 +100,7 @@ export default async function CourseFichePage({
       .maybeSingle(),
     supabase
       .from('activities')
-      .select('distance_m, elevation_gain_m, moving_time_s')
+      .select('name, started_at, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km')
       .gte('started_at', since90d),
     supabase
       .from('activities')
@@ -129,13 +129,21 @@ export default async function CourseFichePage({
     ref_semi_s: athlete?.ref_semi_s ?? null,
     ref_marathon_s: athlete?.ref_marathon_s ?? null,
   }
-  const { refs } = inferReferenceTimesFromRaces(
+  const { refs, bestFromActivity } = inferReferenceTimes(
     savedRefs,
     (doneRaces ?? []).map((r) => ({
       distance_m: r.distance_m,
       elevation_gain_m: r.elevation_gain_m,
       result_time_s: r.result_time_s,
       race_date: r.race_date,
+    })),
+    (recentActs90 ?? []).map((a) => ({
+      distance_m: a.distance_m,
+      elevation_gain_m: a.elevation_gain_m,
+      moving_time_s: a.moving_time_s,
+      avg_pace_s_per_km: a.avg_pace_s_per_km ?? null,
+      started_at: a.started_at ?? null,
+      name: a.name ?? null,
     })),
     new Date(),
   )
@@ -287,6 +295,13 @@ export default async function CourseFichePage({
                 ? `${formatDuree(estimate.estimatedTimeS - goalS)} plus rapide que l'estimation.`
                 : `${formatDuree(goalS - estimate.estimatedTimeS)} de marge sur l'estimation.`}
             </p>
+          )}
+          {estimate.source === 'route-refs' && estimate.routeRefKm && (
+            <RecentSpeedContext
+              refKm={estimate.routeRefKm}
+              bestFromActivity={bestFromActivity}
+              usedRefTimeS={pickRefTimeS(estimate.routeRefKm, refs)}
+            />
           )}
         </section>
       )}
@@ -489,6 +504,63 @@ function formatKmLabel(km: number): string {
   if (Math.abs(km - 21.0975) < 0.1) return 'semi'
   if (Math.abs(km - 42.195) < 0.1) return 'marathon'
   return `${km.toFixed(1)} km`
+}
+
+function pickRefTimeS(
+  km: number,
+  refs: { ref_5km_s: number | null; ref_10km_s: number | null; ref_semi_s: number | null; ref_marathon_s: number | null },
+): number | null {
+  if (Math.abs(km - 5) < 0.1) return refs.ref_5km_s
+  if (Math.abs(km - 10) < 0.1) return refs.ref_10km_s
+  if (Math.abs(km - 21.0975) < 0.1) return refs.ref_semi_s
+  if (Math.abs(km - 42.195) < 0.1) return refs.ref_marathon_s
+  return null
+}
+
+function keyForKm(km: number): 'ref_5km_s' | 'ref_10km_s' | 'ref_semi_s' | 'ref_marathon_s' | null {
+  if (Math.abs(km - 5) < 0.1) return 'ref_5km_s'
+  if (Math.abs(km - 10) < 0.1) return 'ref_10km_s'
+  if (Math.abs(km - 21.0975) < 0.1) return 'ref_semi_s'
+  if (Math.abs(km - 42.195) < 0.1) return 'ref_marathon_s'
+  return null
+}
+
+/**
+ * Sous-bloc affiche en mode route : quand on utilise un ref saisi
+ * (typiquement ancien) mais que des seances de vitesse recentes
+ * pourraient etre pertinentes, on montre le calcul equivalent pour
+ * qu'Eva puisse comparer et corriger si besoin.
+ */
+function RecentSpeedContext({
+  refKm,
+  bestFromActivity,
+  usedRefTimeS,
+}: {
+  refKm: number
+  bestFromActivity: Record<string, { label: string | null; date: string | null; equivalentS: number } | undefined>
+  usedRefTimeS: number | null
+}) {
+  const key = keyForKm(refKm)
+  const src = key ? bestFromActivity[key] : null
+  if (!src) return null
+  const shortLabel = src.label && src.label.length > 40 ? src.label.slice(0, 38).trim() + '…' : src.label
+  const when = src.date ? ` du ${formatShortDate(src.date)}` : ''
+  const usedIsBetter = usedRefTimeS != null && usedRefTimeS <= src.equivalentS
+  return (
+    <div className="mt-3 rounded-data border border-brume bg-brume/40 p-3">
+      <div className="font-mono text-[10px] uppercase text-granit">
+        Séances de vitesse récentes
+      </div>
+      <p className="mt-1 break-words text-xs text-schiste">
+        Meilleur équivalent {formatKmLabel(refKm)} déduit : <span className="tabular font-medium">{formatDuree(src.equivalentS)}</span>
+        {shortLabel ? ` — depuis « ${shortLabel} »` : ''}
+        {when}.{' '}
+        {usedIsBetter
+          ? 'Ton temps de référence saisi reste plus rapide, on le garde.'
+          : 'Utilisé pour l\'estimation.'}
+      </p>
+    </div>
+  )
 }
 
 function formatShortDate(iso: string): string {
