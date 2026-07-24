@@ -63,7 +63,7 @@ export default async function CourseFichePage({
 
   const DAY_MS = 24 * 60 * 60 * 1000
   const since90d = new Date(Date.now() - 90 * DAY_MS).toISOString()
-  const since180d = new Date(Date.now() - 180 * DAY_MS).toISOString()
+  const since24m = new Date(Date.now() - 730 * DAY_MS).toISOString()
   const todayIso = new Date().toISOString().slice(0, 10)
 
   const [
@@ -72,7 +72,7 @@ export default async function CourseFichePage({
     { data: fuelingLogs },
     { data: athlete },
     { data: recentActs90 },
-    { data: longActs180 },
+    { data: longActs },
     { data: doneRaces },
   ] = await Promise.all([
     supabase
@@ -104,12 +104,12 @@ export default async function CourseFichePage({
       .gte('started_at', since90d),
     supabase
       .from('activities')
-      .select('distance_m, elevation_gain_m, moving_time_s')
-      .gte('started_at', since180d)
-      .gte('moving_time_s', 3600),
+      .select('name, started_at, distance_m, elevation_gain_m, moving_time_s')
+      .gte('started_at', since24m)
+      .or('moving_time_s.gte.5400,elevation_gain_m.gte.500'),
     supabase
       .from('races')
-      .select('distance_m, elevation_gain_m, result_time_s, race_date')
+      .select('name, distance_m, elevation_gain_m, result_time_s, race_date')
       .eq('status', 'terminee')
       .lt('race_date', todayIso)
       .not('result_time_s', 'is', null)
@@ -142,9 +142,10 @@ export default async function CourseFichePage({
   const vSpeed = computeVerticalSpeed(recentActs90 ?? [])
 
   // Pool d'efforts comparables : longues sorties des 6 derniers mois
-  // (>= 1h) + courses terminees (autres que celle-ci).
+  // (>= 1h) + courses terminees (autres que celle-ci). Les courses
+  // portent kind='race' -> bonus dans le scoring.
   const similarPool: SimilarEffort[] = [
-    ...(longActs180 ?? [])
+    ...(longActs ?? [])
       .filter(
         (a) =>
           a.distance_m != null && a.distance_m > 0 && a.moving_time_s != null,
@@ -153,6 +154,9 @@ export default async function CourseFichePage({
         distance_m: a.distance_m as number,
         elevation_gain_m: a.elevation_gain_m,
         time_s: a.moving_time_s as number,
+        kind: 'activity' as const,
+        label: a.name ?? null,
+        date: a.started_at ? a.started_at.slice(0, 10) : null,
       })),
     ...(doneRaces ?? [])
       .filter(
@@ -166,6 +170,9 @@ export default async function CourseFichePage({
         distance_m: r.distance_m as number,
         elevation_gain_m: r.elevation_gain_m,
         time_s: r.result_time_s as number,
+        kind: 'race' as const,
+        label: r.name ?? null,
+        date: r.race_date ?? null,
       })),
   ]
 
@@ -260,7 +267,7 @@ export default async function CourseFichePage({
             {(race.elevation_gain_m ?? 0) > 0 && estimate.verticalCostS > 0 && (
               <Stat
                 label={
-                  estimate.source === 'similar' ? 'Dont D+ (indic.)' : 'Coût D+'
+                  estimate.source === 'reference' ? 'Dont D+ (indic.)' : 'Coût D+'
                 }
                 value={`+${formatDuree(estimate.verticalCostS)}`}
               />
@@ -450,14 +457,25 @@ function estimateSourceLabel(
   est: NonNullable<ReturnType<typeof estimateRaceTime>>,
   medianVSpeed: number | null,
 ): string {
-  if (est.source === 'similar') {
-    const profil = est.similarProfile ? 'même profil' : 'vallonnées'
-    return `Basée sur ${est.sampleSize} effort${est.sampleSize > 1 ? 's' : ''} comparable${est.sampleSize > 1 ? 's' : ''} (${profil}), allure Naismith.`
+  if (est.source === 'reference' && est.referenceEffort) {
+    const r = est.referenceEffort
+    const kmLabel = (r.distance_m / 1000).toFixed(0)
+    const dLabel = r.elevation_gain_m > 0 ? ` / ${r.elevation_gain_m} m D+` : ''
+    const kind = r.kind === 'race' ? 'course' : 'sortie'
+    const when = r.date ? ` du ${formatShortDate(r.date)}` : ''
+    const name = r.label ? ` « ${r.label} »` : ''
+    return `Extrapolée depuis ta ${kind}${name}${when} (${kmLabel} km${dLabel} en ${formatDuree(r.time_s)}) via Riegel effort-km.`
   }
   if (est.source === 'refs+vspeed') {
-    return `Riegel depuis ton meilleur temps route + coût D+ (${formatVerticalSpeed(medianVSpeed ?? 0)}). Aucune sortie similaire dans l'historique.`
+    return `Riegel depuis ton meilleur temps route + coût D+ (${formatVerticalSpeed(medianVSpeed ?? 0)}). Aucune sortie comparable dans l'historique.`
   }
   return `Riegel + coût D+ standard (8 min / 100 m). Aucune sortie comparable dans l'historique — l'estimation gagnera en précision quand tu auras des trails passés.`
+}
+
+function formatShortDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' })
 }
 
 function extractRelevantFuelings(rows: FuelingLog[]) {
