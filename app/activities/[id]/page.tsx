@@ -18,6 +18,7 @@ import {
 } from '@/lib/race-matching'
 import {
   analyzeActivity,
+  createRaceFromActivity,
   linkActivityToRace,
   proposeDebriefFromActivity,
   proposeFuelingFromActivity,
@@ -352,15 +353,40 @@ export default async function ActivityDetailPage({
                 Lier
               </button>
             </form>
-            {allRaces.length === 0 && (
+
+            <div className="mt-3 border-t border-brume pt-3">
               <p className="text-xs text-granit">
-                Aucune course en base.{' '}
-                <Link href="/courses" className="underline">
-                  Ajouter une course
-                </Link>{' '}
-                d&apos;abord.
+                Ou crée une nouvelle course à partir de cette séance :
               </p>
-            )}
+              <form
+                action={createRaceFromActivity}
+                className="mt-2 flex flex-wrap items-baseline gap-2"
+              >
+                <input type="hidden" name="activity_id" value={activity.id} />
+                <label className="flex items-baseline gap-1 text-xs text-granit">
+                  priorité
+                  <select
+                    name="priority"
+                    defaultValue="B"
+                    className="rounded-data border border-granit/35 bg-craie px-2 py-1 text-sm font-mono text-schiste focus:border-schiste focus:outline-none"
+                  >
+                    <option value="A">A</option>
+                    <option value="B">B</option>
+                    <option value="C">C</option>
+                  </select>
+                </label>
+                <button
+                  type="submit"
+                  className="rounded-surface border border-granit/40 px-3 py-2 text-sm text-schiste hover:bg-brume"
+                >
+                  Créer et lier
+                </button>
+              </form>
+              <p className="mt-1 text-[11px] italic text-granit">
+                Course pré-remplie (nom, date, distance, D+, temps) et marquée
+                terminée.
+              </p>
+            </div>
           </div>
         )}
       </section>

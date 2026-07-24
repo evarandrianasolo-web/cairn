@@ -27,6 +27,74 @@ import {
 } from '@/lib/format'
 
 /**
+ * Cree une course a partir d'une activite existante et l'associe.
+ * Cas d'usage : Eva a couru une epreuve pas encore dans sa liste
+ * courses. Depuis la fiche activite, un clic cree la race pre-remplie
+ * (nom / date / distance / D+ / temps reel) avec statut 'terminee' et
+ * lie l'activite via race_id.
+ */
+const RACE_PRIORITIES_FROM_ACTIVITY = ['A', 'B', 'C'] as const
+
+export async function createRaceFromActivity(formData: FormData): Promise<void> {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const activityId = String(formData.get('activity_id') ?? '').trim()
+  if (!activityId) throw new Error('activity_id manquant')
+
+  const rawPriority = String(formData.get('priority') ?? 'B')
+  const priority = (RACE_PRIORITIES_FROM_ACTIVITY as readonly string[]).includes(
+    rawPriority,
+  )
+    ? (rawPriority as 'A' | 'B' | 'C')
+    : 'B'
+
+  const { data: activity, error: readErr } = await supabase
+    .from('activities')
+    .select(
+      'id, name, started_at, distance_m, elevation_gain_m, moving_time_s, elapsed_time_s, race_id',
+    )
+    .eq('id', activityId)
+    .maybeSingle()
+  if (readErr) throw new Error(`createRace read: ${readErr.message}`)
+  if (!activity) redirect('/activities')
+
+  if (activity.race_id) {
+    // Deja liee : ne rien faire, ouvrir la fiche activite.
+    redirect(`/activities/${activityId}`)
+  }
+
+  const resultTimeS = activity.elapsed_time_s ?? activity.moving_time_s ?? null
+
+  const { data: race, error: insErr } = await supabase
+    .from('races')
+    .insert({
+      tenant_id: user.id,
+      name: activity.name?.trim() || 'Course sans titre',
+      race_date: activity.started_at.slice(0, 10),
+      priority,
+      distance_m: activity.distance_m,
+      elevation_gain_m: activity.elevation_gain_m,
+      result_time_s: resultTimeS,
+      status: 'terminee',
+    })
+    .select('id')
+    .single()
+  if (insErr) throw new Error(`insert race: ${insErr.message}`)
+
+  const { error: linkErr } = await supabase
+    .from('activities')
+    .update({ race_id: race.id, updated_at: new Date().toISOString() })
+    .eq('id', activityId)
+  if (linkErr) throw new Error(`link activity: ${linkErr.message}`)
+
+  revalidatePath(`/activities/${activityId}`)
+  revalidatePath('/courses')
+  redirect(`/courses/${race.id}?created=1`)
+}
+
+/**
  * Genere / regenere un resume d'analyse court d'une activite.
  * Persistee dans activities.ai_summary. Chaque appel ecrase la version
  * precedente -- pas d'historique par activite pour V0.
