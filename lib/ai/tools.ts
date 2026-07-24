@@ -41,17 +41,78 @@ export const coachTools: Anthropic.Tool[] = [
       required: ['activity_id'],
     },
   },
+  {
+    name: 'propose_constraint',
+    description:
+      'Propose la creation d\'une contrainte quand Eva mentionne une information susceptible d\'orienter le plan : garde d\'enfants recurrente, deplacement pro, vacances, blessure, seance club nouvelle. Le tool CREE UNE PROPOSITION EN ATTENTE de validation par Eva -- il n\'ecrit RIEN dans la table constraints. Une bulle apparaitra dans la conversation avec les boutons Accepter/Rejeter. N\'appelle ce tool que si l\'information est explicite dans le message d\'Eva (ne devine pas). Ne l\'appelle pas si la contrainte existe deja (le contexte liste les contraintes actives).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        label: {
+          type: 'string',
+          description:
+            'Libelle court, mode telegramme. Ex : "Garde des enfants", "Deplacement Lyon", "Vacances Grau", "Douleur mollet gauche".',
+        },
+        kind: {
+          type: 'string',
+          enum: ['recurrente', 'ponctuelle'],
+          description:
+            'recurrente si evenement cyclique (semaine sur deux, chaque jeudi...). ponctuelle si sur une periode fixe.',
+        },
+        type: {
+          type: 'string',
+          enum: ['garde', 'club', 'deplacement', 'vacances', 'meteo', 'blessure', 'travail', 'autre'],
+        },
+        impact: {
+          type: 'string',
+          enum: ['bloque', 'allege', 'decale', 'oriente'],
+          description:
+            'bloque = pas d\'entrainement possible. allege = capacite reduite. decale = seance a bouger. oriente = pas de blocage mais preference de contenu (ex: pas de longue).',
+        },
+        focus: {
+          type: 'string',
+          description:
+            'Optionnel. Libelle court de la preference si impact=oriente. Ex : "sorties moins longues", "randos privilegiees".',
+        },
+        starts_on: {
+          type: 'string',
+          description: 'Optionnel. Date de debut YYYY-MM-DD si connue (obligatoire cote form pour ponctuelle et pour recurrente avec INTERVAL > 1).',
+        },
+        ends_on: {
+          type: 'string',
+          description: 'Optionnel. Date de fin YYYY-MM-DD si periode fermee.',
+        },
+        recurrence_rule: {
+          type: 'string',
+          description:
+            'Optionnel. RRULE format RFC 5545 pour recurrente. Ex : "FREQ=WEEKLY;BYDAY=TU,TH", "FREQ=WEEKLY;INTERVAL=2;BYDAY=SA,SU".',
+        },
+        notes: {
+          type: 'string',
+          description: 'Optionnel. Note libre courte pour contexte additionnel.',
+        },
+      },
+      required: ['label', 'kind', 'type', 'impact'],
+    },
+  },
 ]
 
 // ---------- Dispatcher ----------
 
+export type ToolContext = {
+  supabase: SupabaseClient
+  tenantId: string
+  threadId: string
+}
+
 type ToolHandler = (
   input: unknown,
-  supabase: SupabaseClient,
+  ctx: ToolContext,
 ) => Promise<unknown>
 
 const handlers: Record<string, ToolHandler> = {
   get_activity_detail: handleGetActivityDetail,
+  propose_constraint: handleProposeConstraint,
 }
 
 /**
@@ -62,14 +123,14 @@ const handlers: Record<string, ToolHandler> = {
 export async function runTool(
   name: string,
   input: unknown,
-  supabase: SupabaseClient,
+  ctx: ToolContext,
 ): Promise<string> {
   const handler = handlers[name]
   if (!handler) {
     return JSON.stringify({ error: `tool inconnu: ${name}` })
   }
   try {
-    const result = await handler(input, supabase)
+    const result = await handler(input, ctx)
     return JSON.stringify(result)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -81,7 +142,7 @@ export async function runTool(
 
 async function handleGetActivityDetail(
   input: unknown,
-  supabase: SupabaseClient,
+  { supabase }: ToolContext,
 ): Promise<unknown> {
   if (typeof input !== 'object' || input === null || !('activity_id' in input)) {
     return { error: 'activity_id manquant' }
@@ -189,5 +250,74 @@ async function handleGetActivityDetail(
           focus_areas: debrief.focus_areas,
         }
       : null,
+  }
+}
+
+const CONSTRAINT_KINDS = ['recurrente', 'ponctuelle'] as const
+const CONSTRAINT_TYPES = [
+  'garde',
+  'club',
+  'deplacement',
+  'vacances',
+  'meteo',
+  'blessure',
+  'travail',
+  'autre',
+] as const
+const CONSTRAINT_IMPACTS = ['bloque', 'allege', 'decale', 'oriente'] as const
+
+async function handleProposeConstraint(
+  input: unknown,
+  { supabase, tenantId, threadId }: ToolContext,
+): Promise<unknown> {
+  if (typeof input !== 'object' || input === null) {
+    return { error: 'input invalide' }
+  }
+  const i = input as Record<string, unknown>
+  const label = typeof i.label === 'string' ? i.label.trim() : ''
+  const kind = String(i.kind ?? '')
+  const type = String(i.type ?? '')
+  const impact = String(i.impact ?? '')
+  if (!label) return { error: 'label manquant' }
+  if (!(CONSTRAINT_KINDS as readonly string[]).includes(kind))
+    return { error: `kind invalide (attendus : ${CONSTRAINT_KINDS.join(', ')})` }
+  if (!(CONSTRAINT_TYPES as readonly string[]).includes(type))
+    return { error: `type invalide (attendus : ${CONSTRAINT_TYPES.join(', ')})` }
+  if (!(CONSTRAINT_IMPACTS as readonly string[]).includes(impact))
+    return {
+      error: `impact invalide (attendus : ${CONSTRAINT_IMPACTS.join(', ')})`,
+    }
+
+  const payload = {
+    label,
+    kind,
+    type,
+    impact,
+    focus: typeof i.focus === 'string' ? i.focus.trim() || null : null,
+    starts_on: typeof i.starts_on === 'string' ? i.starts_on : null,
+    ends_on: typeof i.ends_on === 'string' ? i.ends_on : null,
+    recurrence_rule:
+      typeof i.recurrence_rule === 'string' ? i.recurrence_rule : null,
+    notes: typeof i.notes === 'string' ? i.notes.trim() || null : null,
+  }
+
+  const { data, error } = await supabase
+    .from('coach_proposals')
+    .insert({
+      tenant_id: tenantId,
+      thread_id: threadId,
+      kind: 'constraint',
+      payload,
+      status: 'pending',
+    })
+    .select('id')
+    .single()
+  if (error) return { error: `insert proposal: ${error.message}` }
+
+  return {
+    ok: true,
+    proposal_id: data.id,
+    message:
+      'Proposition enregistree. Une bulle apparaitra dans la conversation avec les boutons Accepter / Rejeter pour qu\'Eva confirme.',
   }
 }

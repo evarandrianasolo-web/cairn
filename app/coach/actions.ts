@@ -136,7 +136,11 @@ export async function sendMessage(formData: FormData): Promise<void> {
       apiMessages.push({ role: 'assistant', content: response.content })
       const toolResultBlocks: Anthropic.ToolResultBlockParam[] = []
       for (const use of toolUses) {
-        const resultStr = await runTool(use.name, use.input, supabase)
+        const resultStr = await runTool(use.name, use.input, {
+          supabase,
+          tenantId: user.id,
+          threadId,
+        })
         toolResultBlocks.push({
           type: 'tool_result',
           tool_use_id: use.id,
