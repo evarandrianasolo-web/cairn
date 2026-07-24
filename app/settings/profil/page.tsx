@@ -32,7 +32,7 @@ export default async function ProfilPage({
     await Promise.all([
       supabase
         .from('athletes')
-        .select('ref_5km_s, ref_10km_s, ref_semi_s, ref_marathon_s')
+        .select('ref_5km_s, ref_10km_s, ref_semi_s, ref_marathon_s, ref_5km_at, ref_10km_at, ref_semi_at, ref_marathon_at')
         .maybeSingle(),
       supabase
         .from('races')
@@ -53,6 +53,12 @@ export default async function ProfilPage({
     ref_10km_s: athlete?.ref_10km_s ?? null,
     ref_semi_s: athlete?.ref_semi_s ?? null,
     ref_marathon_s: athlete?.ref_marathon_s ?? null,
+  }
+  const savedRefDates = {
+    ref_5km_at: athlete?.ref_5km_at ?? null,
+    ref_10km_at: athlete?.ref_10km_at ?? null,
+    ref_semi_at: athlete?.ref_semi_at ?? null,
+    ref_marathon_at: athlete?.ref_marathon_at ?? null,
   }
   const { refs, inferred } = inferReferenceTimes(
     savedRefs,
@@ -108,51 +114,41 @@ export default async function ProfilPage({
           <span className="tabular font-mono">20:51</span>, ou secondes brutes.
         </p>
 
-        <form action={updateReferenceTimes} className="mt-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-granit">5 km</span>
-              <input
-                name="ref_5km_s"
-                type="text"
-                defaultValue={refs.ref_5km_s ? formatTime(refs.ref_5km_s) : ''}
-                placeholder="20:51"
-                className="rounded-data border border-granit/35 bg-craie px-3 py-2 text-base tabular text-schiste focus:border-schiste focus:outline-none"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-granit">10 km</span>
-              <input
-                name="ref_10km_s"
-                type="text"
-                defaultValue={refs.ref_10km_s ? formatTime(refs.ref_10km_s) : ''}
-                placeholder="43:20"
-                className="rounded-data border border-granit/35 bg-craie px-3 py-2 text-base tabular text-schiste focus:border-schiste focus:outline-none"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-granit">Semi</span>
-              <input
-                name="ref_semi_s"
-                type="text"
-                defaultValue={refs.ref_semi_s ? formatTime(refs.ref_semi_s) : ''}
-                placeholder="1:37:42"
-                className="rounded-data border border-granit/35 bg-craie px-3 py-2 text-base tabular text-schiste focus:border-schiste focus:outline-none"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-granit">Marathon</span>
-              <input
-                name="ref_marathon_s"
-                type="text"
-                defaultValue={
-                  refs.ref_marathon_s ? formatTime(refs.ref_marathon_s) : ''
-                }
-                placeholder="3:35:00"
-                className="rounded-data border border-granit/35 bg-craie px-3 py-2 text-base tabular text-schiste focus:border-schiste focus:outline-none"
-              />
-            </label>
-          </div>
+        <form action={updateReferenceTimes} className="mt-4 space-y-4">
+          <RefField
+            label="5 km"
+            nameTime="ref_5km_s"
+            nameDate="ref_5km_at"
+            defaultTime={savedRefs.ref_5km_s ? formatTime(savedRefs.ref_5km_s) : ''}
+            defaultDate={savedRefDates.ref_5km_at ?? ''}
+            placeholderTime="20:51"
+          />
+          <RefField
+            label="10 km"
+            nameTime="ref_10km_s"
+            nameDate="ref_10km_at"
+            defaultTime={savedRefs.ref_10km_s ? formatTime(savedRefs.ref_10km_s) : ''}
+            defaultDate={savedRefDates.ref_10km_at ?? ''}
+            placeholderTime="43:20"
+          />
+          <RefField
+            label="Semi"
+            nameTime="ref_semi_s"
+            nameDate="ref_semi_at"
+            defaultTime={savedRefs.ref_semi_s ? formatTime(savedRefs.ref_semi_s) : ''}
+            defaultDate={savedRefDates.ref_semi_at ?? ''}
+            placeholderTime="1:37:42"
+          />
+          <RefField
+            label="Marathon"
+            nameTime="ref_marathon_s"
+            nameDate="ref_marathon_at"
+            defaultTime={
+              savedRefs.ref_marathon_s ? formatTime(savedRefs.ref_marathon_s) : ''
+            }
+            defaultDate={savedRefDates.ref_marathon_at ?? ''}
+            placeholderTime="3:35:00"
+          />
           <div className="flex justify-end">
             <button
               type="submit"
@@ -240,6 +236,46 @@ function VSpeedStat({
       <div className="font-mono text-[10px] uppercase text-granit">{label}</div>
       <div className="tabular mt-1 font-mono text-lg text-schiste">{value}</div>
       <div className="mt-0.5 font-mono text-[10px] text-granit">{hint}</div>
+    </div>
+  )
+}
+
+function RefField({
+  label,
+  nameTime,
+  nameDate,
+  defaultTime,
+  defaultDate,
+  placeholderTime,
+}: {
+  label: string
+  nameTime: string
+  nameDate: string
+  defaultTime: string
+  defaultDate: string
+  placeholderTime: string
+}) {
+  return (
+    <div className="grid grid-cols-[1fr_auto] gap-3">
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-granit">{label}</span>
+        <input
+          name={nameTime}
+          type="text"
+          defaultValue={defaultTime}
+          placeholder={placeholderTime}
+          className="rounded-data border border-granit/35 bg-craie px-3 py-2 text-base tabular text-schiste focus:border-schiste focus:outline-none"
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-granit">Date</span>
+        <input
+          name={nameDate}
+          type="date"
+          defaultValue={defaultDate}
+          className="rounded-data border border-granit/35 bg-craie px-3 py-2 text-base tabular text-schiste focus:border-schiste focus:outline-none"
+        />
+      </label>
     </div>
   )
 }

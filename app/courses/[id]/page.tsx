@@ -119,7 +119,7 @@ export default async function CourseFichePage({
       .limit(20),
     supabase
       .from('athletes')
-      .select('ref_5km_s, ref_10km_s, ref_semi_s, ref_marathon_s')
+      .select('ref_5km_s, ref_10km_s, ref_semi_s, ref_marathon_s, ref_5km_at, ref_10km_at, ref_semi_at, ref_marathon_at')
       .maybeSingle(),
     supabase
       .from('activities')
@@ -163,7 +163,13 @@ export default async function CourseFichePage({
     ref_semi_s: athlete?.ref_semi_s ?? null,
     ref_marathon_s: athlete?.ref_marathon_s ?? null,
   }
-  const { refs, bestFromActivity } = inferReferenceTimes(
+  const savedRefDates = {
+    ref_5km_at: athlete?.ref_5km_at ?? null,
+    ref_10km_at: athlete?.ref_10km_at ?? null,
+    ref_semi_at: athlete?.ref_semi_at ?? null,
+    ref_marathon_at: athlete?.ref_marathon_at ?? null,
+  }
+  const { refs, bestFromActivity, stale } = inferReferenceTimes(
     savedRefs,
     (doneRaces ?? []).map((r) => ({
       distance_m: r.distance_m,
@@ -179,6 +185,9 @@ export default async function CourseFichePage({
       started_at: a.started_at ?? null,
       name: a.name ?? null,
     })),
+    // Passe l'ordre correct : laps + now + savedDates
+    // Note : la signature de inferReferenceTimes attend
+    // (saved, races, activities, laps, now, savedDates)
     ((rawLaps ?? []) as unknown as LapRow[]).map((l) => {
       const act = Array.isArray(l.activity) ? l.activity[0] : l.activity
       const parentD = act?.elevation_gain_m ?? 0
@@ -196,6 +205,7 @@ export default async function CourseFichePage({
       } satisfies LapRefLite
     }),
     new Date(),
+    savedRefDates,
   )
   const vSpeed = computeVerticalSpeed(recentActs90 ?? [])
 
@@ -351,6 +361,11 @@ export default async function CourseFichePage({
               refKm={estimate.routeRefKm}
               bestFromActivity={bestFromActivity}
               usedRefTimeS={pickRefTimeS(estimate.routeRefKm, refs)}
+              staleKeys={stale}
+              savedRefTimeS={pickRefTimeS(estimate.routeRefKm, savedRefs)}
+              savedRefDate={
+                pickRefDate(estimate.routeRefKm, savedRefDates)
+              }
             />
           )}
         </section>
@@ -567,6 +582,17 @@ function pickRefTimeS(
   return null
 }
 
+function pickRefDate(
+  km: number,
+  dates: { ref_5km_at: string | null; ref_10km_at: string | null; ref_semi_at: string | null; ref_marathon_at: string | null },
+): string | null {
+  if (Math.abs(km - 5) < 0.1) return dates.ref_5km_at
+  if (Math.abs(km - 10) < 0.1) return dates.ref_10km_at
+  if (Math.abs(km - 21.0975) < 0.1) return dates.ref_semi_at
+  if (Math.abs(km - 42.195) < 0.1) return dates.ref_marathon_at
+  return null
+}
+
 function keyForKm(km: number): 'ref_5km_s' | 'ref_10km_s' | 'ref_semi_s' | 'ref_marathon_s' | null {
   if (Math.abs(km - 5) < 0.1) return 'ref_5km_s'
   if (Math.abs(km - 10) < 0.1) return 'ref_10km_s'
@@ -585,30 +611,53 @@ function RecentSpeedContext({
   refKm,
   bestFromActivity,
   usedRefTimeS,
+  staleKeys,
+  savedRefTimeS,
+  savedRefDate,
 }: {
   refKm: number
   bestFromActivity: Record<string, { label: string | null; date: string | null; equivalentS: number } | undefined>
   usedRefTimeS: number | null
+  staleKeys: Partial<Record<'ref_5km_s' | 'ref_10km_s' | 'ref_semi_s' | 'ref_marathon_s', true>>
+  savedRefTimeS: number | null
+  savedRefDate: string | null
 }) {
   const key = keyForKm(refKm)
   const src = key ? bestFromActivity[key] : null
-  if (!src) return null
-  const shortLabel = src.label && src.label.length > 40 ? src.label.slice(0, 38).trim() + '…' : src.label
-  const when = src.date ? ` du ${formatShortDate(src.date)}` : ''
-  const usedIsBetter = usedRefTimeS != null && usedRefTimeS <= src.equivalentS
+  const isStale = key ? staleKeys[key] === true : false
+  if (!src && !isStale) return null
+  const shortLabel = src?.label && src.label.length > 40 ? src.label.slice(0, 38).trim() + '…' : src?.label
+  const when = src?.date ? ` du ${formatShortDate(src.date)}` : ''
+  const usedIsBetter =
+    usedRefTimeS != null && src != null && usedRefTimeS <= src.equivalentS
+
   return (
     <div className="mt-3 rounded-data border border-brume bg-brume/40 p-3">
       <div className="font-mono text-[10px] uppercase text-granit">
         Séances de vitesse récentes
       </div>
-      <p className="mt-1 break-words text-xs text-schiste">
-        Meilleur équivalent {formatKmLabel(refKm)} déduit : <span className="tabular font-medium">{formatDuree(src.equivalentS)}</span>
-        {shortLabel ? ` — depuis « ${shortLabel} »` : ''}
-        {when}.{' '}
-        {usedIsBetter
-          ? 'Ton temps de référence saisi reste plus rapide, on le garde.'
-          : 'Utilisé pour l\'estimation.'}
-      </p>
+      {isStale && savedRefTimeS != null && (
+        <p className="mt-1 break-words text-xs text-schiste">
+          Ton temps de référence saisi{' '}
+          <span className="tabular">{formatDuree(savedRefTimeS)}</span>
+          {savedRefDate ? ` (${formatShortDate(savedRefDate)})` : ''} date de
+          plus de 6 mois — on privilégie tes séances de vitesse plus récentes
+          pour l&apos;estimation.
+        </p>
+      )}
+      {src && (
+        <p className="mt-1 break-words text-xs text-schiste">
+          Meilleur équivalent {formatKmLabel(refKm)} déduit :{' '}
+          <span className="tabular font-medium">{formatDuree(src.equivalentS)}</span>
+          {shortLabel ? ` — depuis « ${shortLabel} »` : ''}
+          {when}.{' '}
+          {isStale
+            ? "Utilisé pour l'estimation (ref saisi jugé trop ancien)."
+            : usedIsBetter
+              ? 'Ton temps de référence saisi reste plus rapide, on le garde.'
+              : "Utilisé pour l'estimation."}
+        </p>
+      )}
     </div>
   )
 }

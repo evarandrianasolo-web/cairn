@@ -28,11 +28,23 @@ export async function updateReferenceTimes(formData: FormData): Promise<void> {
     return parsed
   }
 
+  const parseDate = (field: string) => {
+    const raw = String(formData.get(field) ?? '').trim()
+    if (!raw) return null
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw))
+      failWith(`Date invalide pour ${field}. Format attendu YYYY-MM-DD.`)
+    return raw
+  }
+
   const values = {
     ref_5km_s: parseField('ref_5km_s'),
     ref_10km_s: parseField('ref_10km_s'),
     ref_semi_s: parseField('ref_semi_s'),
     ref_marathon_s: parseField('ref_marathon_s'),
+    ref_5km_at: parseDate('ref_5km_at'),
+    ref_10km_at: parseDate('ref_10km_at'),
+    ref_semi_at: parseDate('ref_semi_at'),
+    ref_marathon_at: parseDate('ref_marathon_at'),
     updated_at: new Date().toISOString(),
   }
 

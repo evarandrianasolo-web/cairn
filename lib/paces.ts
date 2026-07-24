@@ -19,6 +19,13 @@ export type ReferenceTimes = {
   ref_marathon_s: number | null
 }
 
+export type ReferenceDates = {
+  ref_5km_at: string | null
+  ref_10km_at: string | null
+  ref_semi_at: string | null
+  ref_marathon_at: string | null
+}
+
 export type PaceZone = {
   minSPerKm: number
   maxSPerKm: number
@@ -274,16 +281,37 @@ export function inferReferenceTimes(
   activities: ActivityRefLite[],
   laps: LapRefLite[] = [],
   now: Date = new Date(2000, 0, 1),
+  savedDates: ReferenceDates = {
+    ref_5km_at: null,
+    ref_10km_at: null,
+    ref_semi_at: null,
+    ref_marathon_at: null,
+  },
 ): {
   refs: ReferenceTimes
   inferred: Partial<Record<keyof ReferenceTimes, true>>
   bestFromActivity: Partial<Record<keyof ReferenceTimes, InferenceSource>>
+  stale: Partial<Record<keyof ReferenceTimes, true>>
 } {
   const cutoffRace = new Date(now.getTime() - 18 * 30 * 24 * 3600 * 1000)
   const cutoffAct = new Date(now.getTime() - 90 * 24 * 3600 * 1000)
+  const cutoffStale = new Date(now.getTime() - 6 * 30 * 24 * 3600 * 1000)
   const inferred: Partial<Record<keyof ReferenceTimes, true>> = {}
   const bestFromActivity: Partial<Record<keyof ReferenceTimes, InferenceSource>> = {}
+  const stale: Partial<Record<keyof ReferenceTimes, true>> = {}
   const result: ReferenceTimes = { ...saved }
+
+  const dateKeyFor: Record<keyof ReferenceTimes, keyof ReferenceDates> = {
+    ref_5km_s: 'ref_5km_at',
+    ref_10km_s: 'ref_10km_at',
+    ref_semi_s: 'ref_semi_at',
+    ref_marathon_s: 'ref_marathon_at',
+  }
+  const isRefStale = (key: keyof ReferenceTimes): boolean => {
+    const dateStr = savedDates[dateKeyFor[key]]
+    if (!dateStr) return false
+    return new Date(dateStr) < cutoffStale
+  }
 
   const eligibleRaces = races.filter(
     (r) =>
@@ -341,9 +369,22 @@ export function inferReferenceTimes(
   })
 
   for (const target of CANONICAL_ROUTE) {
-    let best: number | null = result[target.key]
+    // Si le ref saisi est stale (> 6 mois), on l'oublie pour la
+    // comparaison "meilleur temps gagne" -- les activites recentes
+    // reprennent la main. Ce comportement colle a la demande : un
+    // 20:51 de janvier ne doit pas empecher un 22 min recent
+    // d'apparaitre comme reference plus fidele a la forme actuelle.
+    const refIsStale = isRefStale(target.key)
+    if (refIsStale) stale[target.key] = true
+    let best: number | null = refIsStale ? null : result[target.key]
 
     for (const r of eligibleRaces) {
+      // Quand le ref saisi est jugé ancien (stale), on refuse aussi
+      // les courses de la même periode. Sinon la course qui a servi a
+      // caler le ref (souvent la meme perf) revient par la fenetre et
+      // ecrase l'inference recente que l'on veut privilegier.
+      if (refIsStale && r.race_date && new Date(r.race_date) < cutoffStale)
+        continue
       const dKm = (r.distance_m as number) / 1000
       const ratio = dKm / target.km
       if (ratio < 0.85 || ratio > 1.15) continue
@@ -418,13 +459,17 @@ export function inferReferenceTimes(
     }
     if (bestActSource) bestFromActivity[target.key] = bestActSource
 
+    // Si le ref etait stale et qu'aucun deduit n'a ete trouve, on
+    // remet la valeur saisie faute de mieux -- une vieille reference
+    // vaut mieux qu'un trou.
+    if (best == null && refIsStale) best = saved[target.key]
     if (best != null) result[target.key] = best
   }
 
-  return { refs: result, inferred, bestFromActivity }
+  return { refs: result, inferred, bestFromActivity, stale }
 }
 
-/** @deprecated use inferReferenceTimes(saved, races, [], [], now). */
+/** @deprecated use inferReferenceTimes(saved, races, [], [], now, savedDates). */
 export function inferReferenceTimesFromRaces(
   saved: ReferenceTimes,
   races: RaceLite[],

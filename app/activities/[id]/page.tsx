@@ -111,7 +111,7 @@ export default async function ActivityDetailPage({
 
   if (!activity) redirect('/activities')
 
-  const [fuelingRes, linkedRaceRes, allRacesRes, existingDebriefRes, lapsRes] = await Promise.all([
+  const [fuelingRes, linkedRaceRes, allRacesRes, existingDebriefRes, lapsRes, healthRes] = await Promise.all([
     supabase
       .from('fueling_logs')
       .select(
@@ -147,6 +147,11 @@ export default async function ActivityDetailPage({
       )
       .eq('activity_id', activity.id)
       .order('lap_index', { ascending: true }),
+    supabase
+      .from('activity_health')
+      .select('avg_hr, max_hr')
+      .eq('activity_id', activity.id)
+      .maybeSingle(),
   ])
 
   const fueling = fuelingRes.data
@@ -155,6 +160,9 @@ export default async function ActivityDetailPage({
   const existingDebriefId = (existingDebriefRes.data as { id: string } | null)?.id ?? null
   const hasNotes = (activity.user_notes ?? '').trim().length > 0
   const rawLaps = (lapsRes.data ?? []) as LapDisplay[]
+  const activityHealth = healthRes.data as
+    | { avg_hr: number | null; max_hr: number | null }
+    | null
 
   // FC par lap : table sante separee, filtree par RLS. Si le
   // consentement fc_stockage est OFF il n'y a rien a merger.
@@ -237,6 +245,16 @@ export default async function ActivityDetailPage({
           label="Cadence"
           value={activity.avg_cadence != null ? `${activity.avg_cadence}` : '—'}
         />
+        {activityHealth?.avg_hr != null && (
+          <Stat
+            label="FC moy"
+            value={
+              activityHealth.max_hr != null
+                ? `${activityHealth.avg_hr} · max ${activityHealth.max_hr}`
+                : `${activityHealth.avg_hr}`
+            }
+          />
+        )}
       </div>
 
       <section>
@@ -664,16 +682,16 @@ function LapsSection({
   const effortThreshold = median != null ? median - 30 : null
 
   return (
-    <section>
-      <div className="flex items-baseline justify-between">
+    <details className="group">
+      <summary className="flex cursor-pointer items-baseline justify-between list-none">
         <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
-          Laps ({laps.length})
+          Laps ({laps.length}) — <span className="text-schiste group-open:hidden">voir</span><span className="hidden text-schiste group-open:inline">masquer</span>
         </h2>
         <span className="font-mono text-[10px] uppercase text-granit">
           {isManual ? 'manuels' : 'auto-km'}
           {hasHealth ? ' · avec FC' : ''}
         </span>
-      </div>
+      </summary>
       <ul className="mt-3 divide-y divide-brume rounded-data border border-brume bg-craie">
         {laps.map((lap) => {
           const pace =
@@ -738,7 +756,7 @@ function LapsSection({
           course.
         </p>
       )}
-    </section>
+    </details>
   )
 }
 
