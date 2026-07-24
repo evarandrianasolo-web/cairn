@@ -16,6 +16,11 @@ import {
   isoWeekStart,
   type WeeklyActivity,
 } from '@/lib/analytics'
+import {
+  derivePaces,
+  formatPaceZone,
+  hasReferenceTimes,
+} from '@/lib/paces'
 
 const WEEK_COUNT = 13
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -80,6 +85,7 @@ export default async function DashboardPage() {
     { data: doneRaces },
     { data: debriefsData },
     { data: fuelingData },
+    { data: athleteRow },
   ] = await Promise.all([
     supabase
       .from('activities')
@@ -121,6 +127,10 @@ export default async function DashboardPage() {
       )
       .order('created_at', { ascending: false })
       .limit(20),
+    supabase
+      .from('athletes')
+      .select('ref_5km_s, ref_10km_s, ref_semi_s, ref_marathon_s')
+      .maybeSingle(),
   ])
 
   const activities = (activityRows ?? []) as WeeklyActivity[]
@@ -160,6 +170,15 @@ export default async function DashboardPage() {
 
   const races = (doneRaces ?? []) as RaceRow[]
 
+  const refs = {
+    ref_5km_s: athleteRow?.ref_5km_s ?? null,
+    ref_10km_s: athleteRow?.ref_10km_s ?? null,
+    ref_semi_s: athleteRow?.ref_semi_s ?? null,
+    ref_marathon_s: athleteRow?.ref_marathon_s ?? null,
+  }
+  const paces = derivePaces(refs)
+  const hasRefs = hasReferenceTimes(refs)
+
   return (
     <main className="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
       <ScreenTitle>Dashboard</ScreenTitle>
@@ -180,6 +199,27 @@ export default async function DashboardPage() {
         <BigStat label="Temps sur pieds" value={formatDuree(totalTimeS)} />
         <BigStat label="Plus longue" value={formatDistance(longestM)} />
       </section>
+
+      {hasRefs && (
+        <section className="rounded-data border border-brume bg-craie p-3 sm:p-4">
+          <div className="flex items-baseline justify-between">
+            <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
+              Allures cibles
+            </h2>
+            <Link
+              href="/settings/profil"
+              className="font-mono text-[10px] text-granit underline"
+            >
+              modifier
+            </Link>
+          </div>
+          <ul className="mt-3 grid gap-2 sm:grid-cols-3">
+            <PaceRow label="Endurance fondamentale" zone={paces.ef} />
+            <PaceRow label="Seuil" zone={paces.seuil} />
+            <PaceRow label="VMA courte" zone={paces.vma} />
+          </ul>
+        </section>
+      )}
 
       <section className="rounded-data border border-brume bg-craie p-3 sm:p-4">
         <div className="flex items-baseline justify-between">
@@ -452,6 +492,23 @@ function BigStat({
       </div>
       <div className="mt-1 font-mono text-[10px] text-granit">{label}</div>
     </div>
+  )
+}
+
+function PaceRow({
+  label,
+  zone,
+}: {
+  label: string
+  zone: ReturnType<typeof derivePaces>['ef']
+}) {
+  return (
+    <li className="rounded-data border border-brume bg-brume/40 px-3 py-2">
+      <div className="font-mono text-[10px] uppercase text-granit">{label}</div>
+      <div className="tabular mt-1 font-mono text-sm text-schiste">
+        {zone ? formatPaceZone(zone) : '—'}
+      </div>
+    </li>
   )
 }
 

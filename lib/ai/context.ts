@@ -7,6 +7,7 @@ import {
   formatDuree,
 } from '@/lib/format'
 import { aggregateByWeek, isoWeekStart } from '@/lib/analytics'
+import { derivePaces, formatPaceZone, formatTime } from '@/lib/paces'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const WEEKS_AGGREGATED = 12
@@ -48,7 +49,10 @@ export async function buildCoachContext(
     lastDebriefRes,
     goalsRes,
   ] = await Promise.all([
-    supabase.from('athletes').select('display_name, timezone').maybeSingle(),
+    supabase
+      .from('athletes')
+      .select('display_name, timezone, ref_5km_s, ref_10km_s, ref_semi_s, ref_marathon_s')
+      .maybeSingle(),
     // Toutes les activités des 12 dernières semaines pour l'agrégation.
     supabase
       .from('activities')
@@ -129,6 +133,32 @@ export async function buildCoachContext(
     lines.push(`Athlete : ${athlete.display_name}${athlete.timezone ? ` (${athlete.timezone})` : ''}`)
   }
   lines.push('')
+
+  // Temps de reference + allures calculees, si dispo. Ces valeurs
+  // servent au coach a proposer des allures precises dans les intents.
+  if (athlete) {
+    const refs = {
+      ref_5km_s: athlete.ref_5km_s ?? null,
+      ref_10km_s: athlete.ref_10km_s ?? null,
+      ref_semi_s: athlete.ref_semi_s ?? null,
+      ref_marathon_s: athlete.ref_marathon_s ?? null,
+    }
+    const paces = derivePaces(refs)
+    const refLines: string[] = []
+    if (refs.ref_5km_s) refLines.push(`5 km ${formatTime(refs.ref_5km_s)}`)
+    if (refs.ref_10km_s) refLines.push(`10 km ${formatTime(refs.ref_10km_s)}`)
+    if (refs.ref_semi_s) refLines.push(`Semi ${formatTime(refs.ref_semi_s)}`)
+    if (refs.ref_marathon_s)
+      refLines.push(`Marathon ${formatTime(refs.ref_marathon_s)}`)
+    if (refLines.length > 0 || paces.ef || paces.seuil || paces.vma) {
+      lines.push(`## Références et allures cibles`)
+      if (refLines.length > 0) lines.push(`- Temps : ${refLines.join(' · ')}`)
+      if (paces.ef) lines.push(`- EF : ${formatPaceZone(paces.ef)}`)
+      if (paces.seuil) lines.push(`- Seuil : ${formatPaceZone(paces.seuil)}`)
+      if (paces.vma) lines.push(`- VMA courte : ${formatPaceZone(paces.vma)}`)
+      lines.push('')
+    }
+  }
 
   if (race) {
     const j = daysUntil(race.race_date)
