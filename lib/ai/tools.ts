@@ -21,6 +21,7 @@ import {
   formatDplus,
   formatDuree,
 } from '@/lib/format'
+import { formatPace } from '@/lib/paces'
 
 // ---------- Definitions envoyees a l'API ----------
 
@@ -136,6 +137,22 @@ export const coachTools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'get_activity_laps',
+    description:
+      'Renvoie les laps (splits) d\'une activite d\'Eva : allure, distance et duree de chaque bloc, plus les meilleurs splits agreges. Utilise ce tool quand Eva veut un debrief technique d\'une seance de vitesse (VMA, seuil, fractionnes) ou quand tu veux commenter les blocs d\'effort separement de la moyenne. Les laps manuels (bouton lap sur la montre) sont plus fideles que les auto-lap kilometriques. Aucune donnee de FC n\'est renvoyee.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        activity_id: {
+          type: 'string',
+          description:
+            'UUID de l\'activite dont on veut les laps. Recuperable via les 10 dernieres seances du contexte ou via get_activity_detail.',
+        },
+      },
+      required: ['activity_id'],
+    },
+  },
+  {
     name: 'get_session_templates',
     description:
       'Renvoie la banque de modeles de seances d\'Eva (banque personnelle, editable). Utilise ce tool quand Eva demande "montre-moi mes seances VMA", "quels modeles de renfo j\'ai enregistres", ou quand tu dois piocher une idee de seance calibree pour composer un plan. Filtrable par type. Si vide, propose-lui d\'aller sur /seances pour charger la banque de depart.',
@@ -195,6 +212,7 @@ type ToolHandler = (
 
 const handlers: Record<string, ToolHandler> = {
   get_activity_detail: handleGetActivityDetail,
+  get_activity_laps: handleGetActivityLaps,
   get_session_templates: handleGetSessionTemplates,
   propose_constraint: handleProposeConstraint,
   propose_race: handleProposeRace,
@@ -336,6 +354,114 @@ async function handleGetActivityDetail(
           focus_areas: debrief.focus_areas,
         }
       : null,
+  }
+}
+
+async function handleGetActivityLaps(
+  input: unknown,
+  { supabase }: ToolContext,
+): Promise<unknown> {
+  if (typeof input !== 'object' || input === null || !('activity_id' in input)) {
+    return { error: 'activity_id manquant' }
+  }
+  const activityId = String((input as { activity_id: unknown }).activity_id)
+  if (!/^[0-9a-fA-F-]{36}$/.test(activityId)) {
+    return { error: 'activity_id doit etre un UUID' }
+  }
+
+  // La RLS filtre : Eva ne peut lire que ses propres laps.
+  const [{ data: activity }, { data: laps }] = await Promise.all([
+    supabase
+      .from('activities')
+      .select('id, name, started_at, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km')
+      .eq('id', activityId)
+      .maybeSingle(),
+    supabase
+      .from('activity_laps')
+      .select('lap_index, distance_m, moving_time_s, avg_pace_s_per_km, elevation_gain_m, is_manual')
+      .eq('activity_id', activityId)
+      .order('lap_index', { ascending: true }),
+  ])
+
+  if (!activity) return { error: 'activite introuvable' }
+  if (!laps || laps.length === 0) {
+    return {
+      activity_id: activityId,
+      name: activity.name,
+      date: activity.started_at,
+      laps: [],
+      message:
+        'Aucun lap enregistre pour cette activite. Eva peut lancer le backfill depuis /settings/strava.',
+    }
+  }
+
+  const isManual = laps.some((l) => l.is_manual)
+
+  // Meilleur split par distance canonique -- utile pour dire "meilleur
+  // 1 km 4:01/km" sans que le modele ait a scanner tous les laps.
+  const bestSplit = (targetKm: number) => {
+    const candidates = laps
+      .filter((l) => Math.abs(l.distance_m / 1000 - targetKm) / targetKm <= 0.1)
+      .map((l) => ({
+        pace: l.avg_pace_s_per_km ?? l.moving_time_s / (l.distance_m / 1000),
+        lap_index: l.lap_index,
+        distance_m: l.distance_m,
+        moving_time_s: l.moving_time_s,
+      }))
+      .sort((a, b) => a.pace - b.pace)
+    return candidates[0] ?? null
+  }
+
+  const best500 = bestSplit(0.5)
+  const best1000 = bestSplit(1)
+  const best2000 = bestSplit(2)
+
+  return {
+    activity_id: activityId,
+    name: activity.name,
+    date: activity.started_at,
+    date_courte: formatDateCourte(activity.started_at),
+    distance: formatDistance(activity.distance_m),
+    duree: formatDuree(activity.moving_time_s),
+    allure_moyenne: formatPace(activity.avg_pace_s_per_km),
+    source_laps: isManual ? 'manuels' : 'auto-km',
+    nb_laps: laps.length,
+    meilleurs_splits: {
+      '500m': best500
+        ? {
+            allure: formatPace(best500.pace),
+            temps: formatDuree(best500.moving_time_s),
+            lap: best500.lap_index,
+          }
+        : null,
+      '1km': best1000
+        ? {
+            allure: formatPace(best1000.pace),
+            temps: formatDuree(best1000.moving_time_s),
+            lap: best1000.lap_index,
+          }
+        : null,
+      '2km': best2000
+        ? {
+            allure: formatPace(best2000.pace),
+            temps: formatDuree(best2000.moving_time_s),
+            lap: best2000.lap_index,
+          }
+        : null,
+    },
+    // Limite a 40 laps pour eviter d'exploser le contexte : au-dela
+    // c'est un signe de sortie longue avec auto-lap, l'agrege suffit.
+    laps: laps.slice(0, 40).map((l) => {
+      const pace =
+        l.avg_pace_s_per_km ?? l.moving_time_s / (l.distance_m / 1000)
+      return {
+        n: l.lap_index,
+        distance: `${(l.distance_m / 1000).toFixed(2)} km`,
+        temps: formatDuree(l.moving_time_s),
+        allure: formatPace(pace),
+        d_plus: l.elevation_gain_m ?? 0,
+      }
+    }),
   }
 }
 

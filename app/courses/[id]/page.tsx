@@ -29,6 +29,7 @@ type LapRow = {
   distance_m: number
   moving_time_s: number
   is_manual: boolean
+  elevation_gain_m: number | null
   activity:
     | {
         name: string | null
@@ -146,7 +147,7 @@ export default async function CourseFichePage({
   const { data: rawLaps } = await supabase
     .from('activity_laps')
     .select(
-      'activity_id, distance_m, moving_time_s, is_manual, activity:activities!inner(name, started_at, distance_m, elevation_gain_m)',
+      'activity_id, distance_m, moving_time_s, is_manual, elevation_gain_m, activity:activities!inner(name, started_at, distance_m, elevation_gain_m)',
     )
     .gte('activity.started_at', since90d)
     .gte('distance_m', 800)
@@ -190,6 +191,7 @@ export default async function CourseFichePage({
         distance_m: l.distance_m,
         moving_time_s: l.moving_time_s,
         is_manual: l.is_manual,
+        elevation_gain_m: l.elevation_gain_m ?? 0,
         parent_dplus_per_km: parentDplusPerKm,
       } satisfies LapRefLite
     }),

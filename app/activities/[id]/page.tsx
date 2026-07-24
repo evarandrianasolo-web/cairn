@@ -16,6 +16,7 @@ import {
   isRaceEligibleSport,
   type RaceForMatch,
 } from '@/lib/race-matching'
+import { classifySession, type SessionKind } from '@/lib/analytics/classify-session'
 import {
   analyzeActivity,
   createRaceFromActivity,
@@ -26,6 +27,18 @@ import {
   toggleTodoDismissed,
   updateActivityNotes,
 } from '../actions'
+
+const SESSION_KIND_LABEL: Record<SessionKind, string> = {
+  vma: 'VMA · fractionnés',
+  seuil: 'Seuil',
+  cote: 'Côtes',
+  longue: 'Sortie longue',
+  endurance: 'Endurance fondamentale',
+  recup: 'Récupération',
+  rando: 'Rando active',
+  course: 'Course',
+  renfo: 'Renforcement',
+}
 
 const DISMISS_LABEL: Record<string, string> = {
   debrief: 'débrief non nécessaire',
@@ -136,6 +149,21 @@ export default async function ActivityDetailPage({
   const existingDebriefId = (existingDebriefRes.data as { id: string } | null)?.id ?? null
   const hasNotes = (activity.user_notes ?? '').trim().length > 0
   const laps = (lapsRes.data ?? []) as LapDisplay[]
+  const sessionKind = classifySession(
+    {
+      sport_type: activity.sport_type,
+      distance_m: activity.distance_m,
+      elevation_gain_m: activity.elevation_gain_m,
+      moving_time_s: activity.moving_time_s,
+      avg_pace_s_per_km: activity.avg_pace_s_per_km,
+    },
+    laps.map((l) => ({
+      distance_m: l.distance_m,
+      moving_time_s: l.moving_time_s,
+      is_manual: l.is_manual,
+    })),
+    !!linkedRace,
+  )
 
   const isLongEnough =
     activity.moving_time_s != null && activity.moving_time_s >= LONG_SECS
@@ -162,7 +190,14 @@ export default async function ActivityDetailPage({
         </p>
       </div>
 
-      <ScreenTitle>{activity.name ?? 'Séance sans titre'}</ScreenTitle>
+      <div>
+        {sessionKind && (
+          <div className="font-mono text-[10px] uppercase tracking-wide text-granit">
+            {SESSION_KIND_LABEL[sessionKind]}
+          </div>
+        )}
+        <ScreenTitle>{activity.name ?? 'Séance sans titre'}</ScreenTitle>
+      </div>
 
       {erreur && (
         <p className="rounded-data border border-ocre/40 bg-craie px-3 py-2 text-sm text-ocre">

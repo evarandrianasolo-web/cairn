@@ -8,6 +8,10 @@ import {
 } from '@/lib/format'
 import { aggregateByWeek, isoWeekStart } from '@/lib/analytics'
 import { derivePaces, formatPaceZone, formatTime } from '@/lib/paces'
+import {
+  classifySession,
+  type SessionKind,
+} from '@/lib/analytics/classify-session'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const WEEKS_AGGREGATED = 12
@@ -61,10 +65,11 @@ export async function buildCoachContext(
       .order('started_at', { ascending: false }),
     // Les 10 plus récentes détaillées (peuvent recouper les précédentes,
     // mais on garde le nom, l'allure et l'id pour permettre au tool
-    // get_activity_detail de creuser.
+    // get_activity_detail de creuser. race_id sert a marquer une seance
+    // comme 'course' dans la classif.
     supabase
       .from('activities')
-      .select('id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km')
+      .select('id, started_at, sport_type, name, distance_m, elevation_gain_m, moving_time_s, avg_pace_s_per_km, race_id')
       .order('started_at', { ascending: false })
       .limit(RECENT_DETAILED),
     supabase
@@ -195,17 +200,49 @@ export async function buildCoachContext(
   lines.push('')
 
   if (recent.length > 0) {
+    // Fetch les laps pour classifier chaque seance. On limite le
+    // volume : uniquement pour les 10 dernieres (deja borne par
+    // RECENT_DETAILED).
+    const recentIds = recent.map((r) => r.id)
+    const { data: lapsForRecent } = await supabase
+      .from('activity_laps')
+      .select('activity_id, distance_m, moving_time_s, is_manual')
+      .in('activity_id', recentIds)
+    const lapsByActivity = new Map<string, typeof lapsForRecent>()
+    for (const l of lapsForRecent ?? []) {
+      const prev = lapsByActivity.get(l.activity_id) ?? []
+      prev.push(l)
+      lapsByActivity.set(l.activity_id, prev)
+    }
+
     lines.push(`## ${recent.length} dernières séances`)
     lines.push(
-      `(id entre crochets → utilisable via get_activity_detail(activity_id))`,
+      `(id entre crochets → utilisable via get_activity_detail / get_activity_laps ; type = classification inferee heuristique)`,
     )
     for (const a of recent) {
       const paceStr =
         a.avg_pace_s_per_km && a.avg_pace_s_per_km > 0
           ? ` · ${Math.floor(a.avg_pace_s_per_km / 60)}:${String(Math.round(a.avg_pace_s_per_km % 60)).padStart(2, '0')}/km`
           : ''
+      const activityLaps = lapsByActivity.get(a.id) ?? []
+      const kind = classifySession(
+        {
+          sport_type: a.sport_type,
+          distance_m: a.distance_m,
+          elevation_gain_m: a.elevation_gain_m,
+          moving_time_s: a.moving_time_s,
+          avg_pace_s_per_km: a.avg_pace_s_per_km,
+        },
+        activityLaps.map((l) => ({
+          distance_m: l.distance_m,
+          moving_time_s: l.moving_time_s,
+          is_manual: l.is_manual,
+        })),
+        !!a.race_id,
+      )
+      const kindTag = kind ? ` [${SESSION_KIND_TAG[kind]}]` : ''
       lines.push(
-        `- [${a.id}] ${formatDateCourte(a.started_at)} · ${a.sport_type ?? '—'} · ` +
+        `- [${a.id}]${kindTag} ${formatDateCourte(a.started_at)} · ${a.sport_type ?? '—'} · ` +
           `${formatDistance(a.distance_m)} · ${formatDplus(a.elevation_gain_m)} · ` +
           `${formatDuree(a.moving_time_s)}${paceStr}${a.name ? ` — ${a.name}` : ''}`,
       )
@@ -284,6 +321,18 @@ export async function buildCoachContext(
   }
 
   return lines.join('\n')
+}
+
+const SESSION_KIND_TAG: Record<SessionKind, string> = {
+  vma: 'VMA',
+  seuil: 'seuil',
+  cote: 'cotes',
+  longue: 'longue',
+  endurance: 'EF',
+  recup: 'recup',
+  rando: 'rando',
+  course: 'course',
+  renfo: 'renfo',
 }
 
 const IMPACT_LABELS: Record<string, string> = {

@@ -233,6 +233,13 @@ export type LapRefLite = {
   moving_time_s: number
   is_manual: boolean
   /**
+   * D+ du lap lui-meme. Un lap en descente forte a un D+ tres faible
+   * et une vitesse anormalement rapide (biais). Un lap en montee raide
+   * a un D+ tres eleve et une vitesse anormalement lente (autre biais).
+   * Dans les deux cas, l'extrapolation Riegel plate est faussee.
+   */
+  elevation_gain_m: number
+  /**
    * D+/km de l'activite parente. Sert a rejeter les laps auto d'une
    * grosse course trail : un 1 km en 2:45 pris en descente sur une
    * cote roannaise n'est pas une reference d'allure horizontale.
@@ -288,13 +295,14 @@ export function inferReferenceTimes(
       (!r.race_date || new Date(r.race_date) > cutoffRace),
   )
 
-  // Laps eligibles : >= 800 m, pace realiste [3:20 ; 6:30]/km, activite
-  // < 90 j. Un lap manuel a la priorite sur un auto-lap kilometrique
-  // meme longueur (le manuel isole un effort dedie, le kilometrique
-  // fait le kilometre au fil de la seance donc lisse l'effort).
-  // Les laps AUTO sur une activite vallonnee (D+/km > 15) sont
-  // rejetes : leur vitesse depend trop du profil terrain, un km en
-  // descente donne une allure horizontale faussee.
+  // Laps eligibles pour l'extrapolation d'allure plate :
+  //   - >= 800 m, activite < 90 j, pace realiste [3:20 ; 6:30]/km
+  //   - profil du lap lui-meme quasi plat : |D+/km| <= 15 m/km, sinon
+  //     Riegel plate est biaise (descente = trop rapide, montee = trop
+  //     lente). Ce filtre s'applique aussi aux manuels.
+  //   - auto-laps rejetes sur activite parente vallonnee (D+/km > 15).
+  //     Les manuels restent car ils isolent l'intention -- reste
+  //     protege par le filtre "profil du lap" ci-dessus.
   const eligibleLaps = laps.filter((l) => {
     if (l.distance_m < 800 || l.moving_time_s <= 0) return false
     const pace = l.moving_time_s / (l.distance_m / 1000)
@@ -302,6 +310,8 @@ export function inferReferenceTimes(
     if (l.activity_started_at && new Date(l.activity_started_at) < cutoffAct)
       return false
     if (!l.is_manual && l.parent_dplus_per_km > 15) return false
+    const lapDPlusPerKm = (l.elevation_gain_m * 1000) / l.distance_m
+    if (lapDPlusPerKm > 15) return false
     return true
   })
 
