@@ -33,11 +33,22 @@ Format demande :
 - sessions : liste ordonnee (0 a 8 elements) avec pour chaque item :
   - date : YYYY-MM-DD dans la semaine cible
   - session_type : un des enums ci-dessus
-  - intent : 5-20 mots decrivant l'objectif ("EF terrain roulant, cadence 175+")
+  - intent : DESCRIPTION RICHE et EXPLOITABLE le jour meme, 15-40 mots. DOIT contenir :
+    1. La STRUCTURE precise (nombre de repetitions, duree ou distance des blocs, temps ou distance de recuperation entre blocs). Exemples : "3 x 8' seuil, r=2' EF", "5 x 1' vma, r=1'30 marche", "8 x 30/30".
+    2. L'ALLURE CIBLE en s/km si les references sont fournies dans le contexte (ex : "4:35/km"). Sinon donner un repere de ressenti ("aisance 3/10", "au seuil", "conversation possible").
+    3. Le TERRAIN ou RESSENTI attendu ("plat prefere", "cote courte", "cadence 175+", "jambes legeres").
+    Exemples corrects :
+      * "6 x 800m allure semi 4:35/km, r=1'30 EF, plat prefere, echauffement 15' + retour au calme 10'"
+      * "EF vallonnee 6:15-6:45/km, cadence 175+, sensation aisance 3/10 sur la premiere heure"
+      * "Longue 3h30 avec 800m D+, ravitos toutes les 45', tester 60 g/h glucides avec 2 compotes + boisson isotonique"
+      * "Cotes 8 x 45\" en montee 85% intensite, retour trot 2', chercher jambes en descente relachees"
+    Exemples INSUFFISANTS : "seance de seuil" / "sortie longue" (trop vague).
   - duration_min : duree cible en minutes (null si non applicable)
   - distance_km : distance cible en km (null si non applicable)
   - elevation_m : D+ cible en metres (null si non applicable)
   - is_club : true si c'est une seance imposee par le club (mardi / jeudi actuellement, ou selon contraintes)
+
+Si le contexte fournit des ALLURES CIBLES calculees (EF / Seuil / VMA courte), utilise-les DIRECTEMENT dans les intents plutot que de dire "au seuil" abstraitement. Sans references, reste sur des reperes de ressenti.
 
 Reponds UNIQUEMENT en JSON conforme au schema. Aucun preambule.`
 
