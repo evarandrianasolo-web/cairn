@@ -136,6 +136,33 @@ export const coachTools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'get_session_templates',
+    description:
+      'Renvoie la banque de modeles de seances d\'Eva (banque personnelle, editable). Utilise ce tool quand Eva demande "montre-moi mes seances VMA", "quels modeles de renfo j\'ai enregistres", ou quand tu dois piocher une idee de seance calibree pour composer un plan. Filtrable par type. Si vide, propose-lui d\'aller sur /seances pour charger la banque de depart.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        session_type: {
+          type: 'string',
+          enum: [
+            'endurance',
+            'seuil',
+            'vma',
+            'cote',
+            'longue',
+            'recup',
+            'renfo',
+            'rando',
+            'course',
+          ],
+          description:
+            'Optionnel. Restreint la liste a un type. Sans filtre, renvoie tous les templates groupes par type.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
     name: 'propose_debrief_axis',
     description:
       'Propose l\'ajout d\'un axe de travail au DERNIER debrief d\'Eva quand elle mentionne un apprentissage post-course qui n\'est pas encore dans les axes actifs. Le tool CREE UNE PROPOSITION EN ATTENTE. N\'appelle ce tool que si l\'axe est explicite dans le message et absent du contexte (les axes actifs sont listes). Formule l\'axe en objectif actionnable, verbe a l\'infinitif.',
@@ -168,6 +195,7 @@ type ToolHandler = (
 
 const handlers: Record<string, ToolHandler> = {
   get_activity_detail: handleGetActivityDetail,
+  get_session_templates: handleGetSessionTemplates,
   propose_constraint: handleProposeConstraint,
   propose_race: handleProposeRace,
   propose_debrief_axis: handleProposeDebriefAxis,
@@ -308,6 +336,77 @@ async function handleGetActivityDetail(
           focus_areas: debrief.focus_areas,
         }
       : null,
+  }
+}
+
+const SESSION_TYPES = [
+  'endurance',
+  'seuil',
+  'vma',
+  'cote',
+  'longue',
+  'recup',
+  'renfo',
+  'rando',
+  'course',
+] as const
+
+async function handleGetSessionTemplates(
+  input: unknown,
+  { supabase }: ToolContext,
+): Promise<unknown> {
+  const i = (input ?? {}) as Record<string, unknown>
+  const filter = typeof i.session_type === 'string' ? i.session_type : null
+  if (filter && !(SESSION_TYPES as readonly string[]).includes(filter)) {
+    return { error: `session_type invalide (attendus : ${SESSION_TYPES.join(', ')})` }
+  }
+
+  let query = supabase
+    .from('session_templates')
+    .select(
+      'name, session_type, intent, default_duration_s, default_distance_m, default_elevation_m',
+    )
+    .order('session_type', { ascending: true })
+    .order('name', { ascending: true })
+  if (filter) query = query.eq('session_type', filter)
+
+  const { data, error } = await query
+  if (error) return { error: `lecture templates : ${error.message}` }
+
+  const rows = data ?? []
+  if (rows.length === 0) {
+    return {
+      count: 0,
+      message:
+        'La banque est vide. Eva peut la remplir depuis /seances (bouton "Charger la banque de depart" pour un lot calibre, ou creation manuelle).',
+    }
+  }
+
+  const grouped: Record<string, typeof rows> = {}
+  for (const t of rows) {
+    const key = t.session_type ?? 'autre'
+    if (!grouped[key]) grouped[key] = []
+    grouped[key].push(t)
+  }
+
+  return {
+    count: rows.length,
+    templates: Object.entries(grouped).map(([type, items]) => ({
+      type,
+      items: items.map((t) => ({
+        name: t.name,
+        intent: t.intent,
+        duree: t.default_duration_s
+          ? formatDuree(t.default_duration_s)
+          : null,
+        distance: t.default_distance_m
+          ? formatDistance(t.default_distance_m)
+          : null,
+        d_plus: t.default_elevation_m
+          ? formatDplus(t.default_elevation_m)
+          : null,
+      })),
+    })),
   }
 }
 

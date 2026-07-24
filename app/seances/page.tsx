@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { ScreenTitle } from '@/components/screen-title'
 import { formatDistance, formatDplus, formatDuree } from '@/lib/format'
-import { deleteTemplate, seedDefaultTemplates } from './actions'
+import { createTemplate, deleteTemplate, seedDefaultTemplates } from './actions'
 
 const TYPE_LABEL: Record<string, string> = {
   endurance: 'Endurance fondamentale',
@@ -41,13 +41,13 @@ type Template = {
 export default async function SeancesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ seeded?: string; erreur?: string }>
+  searchParams: Promise<{ seeded?: string; erreur?: string; ajoute?: string }>
 }) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { seeded, erreur } = await searchParams
+  const { seeded, erreur, ajoute } = await searchParams
 
   const { data: templates } = await supabase
     .from('session_templates')
@@ -84,6 +84,13 @@ export default async function SeancesPage({
           {seeded} modèles ajoutés à ta banque.
         </p>
       )}
+      {ajoute && (
+        <p className="rounded-data border border-lichen/40 bg-craie px-3 py-2 text-sm text-lichen">
+          Modèle enregistré.
+        </p>
+      )}
+
+      {rows.length > 0 && <NewTemplateForm />}
 
       {rows.length === 0 ? (
         <section className="rounded-data border border-brume bg-craie p-4">
@@ -124,6 +131,99 @@ export default async function SeancesPage({
         </div>
       )}
     </main>
+  )
+}
+
+function NewTemplateForm() {
+  return (
+    <details className="rounded-data border border-brume bg-craie p-3 sm:p-4">
+      <summary className="cursor-pointer font-mono text-xs uppercase tracking-wide text-granit">
+        + Ajouter un modèle
+      </summary>
+      <form action={createTemplate} className="mt-3 space-y-3">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-granit">Nom</span>
+            <input
+              name="name"
+              required
+              placeholder="Ex : Fartlek 8x2'"
+              className="rounded-data border border-granit/35 bg-craie px-3 py-2 text-sm text-schiste focus:border-schiste focus:outline-none"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-granit">Type</span>
+            <select
+              name="session_type"
+              required
+              defaultValue="endurance"
+              className="rounded-data border border-granit/35 bg-craie px-3 py-2 text-sm text-schiste focus:border-schiste focus:outline-none"
+            >
+              <option value="endurance">Endurance</option>
+              <option value="seuil">Seuil</option>
+              <option value="vma">VMA</option>
+              <option value="cote">Côtes</option>
+              <option value="longue">Longue</option>
+              <option value="renfo">Renforcement</option>
+              <option value="recup">Récupération</option>
+              <option value="rando">Rando active</option>
+            </select>
+          </label>
+        </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-granit">
+            Intent (structure + allure + terrain)
+          </span>
+          <textarea
+            name="intent"
+            required
+            rows={3}
+            placeholder="Ex : 15' echauffement + 8 x 2' allure semi 4:35/km, r=1' EF entre blocs, plat, + 10' retour au calme"
+            className="rounded-data border border-granit/35 bg-craie px-3 py-2 text-sm text-schiste focus:border-schiste focus:outline-none"
+          />
+        </label>
+        <div className="grid grid-cols-3 gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-granit">Durée (min)</span>
+            <input
+              name="duration_min"
+              type="number"
+              min="1"
+              placeholder="60"
+              className="rounded-data border border-granit/35 bg-craie px-3 py-2 text-sm tabular text-schiste focus:border-schiste focus:outline-none"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-granit">Distance (km)</span>
+            <input
+              name="distance_km"
+              type="text"
+              inputMode="decimal"
+              placeholder="10"
+              className="rounded-data border border-granit/35 bg-craie px-3 py-2 text-sm tabular text-schiste focus:border-schiste focus:outline-none"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-granit">D+ (m)</span>
+            <input
+              name="elevation_m"
+              type="number"
+              min="0"
+              placeholder="100"
+              className="rounded-data border border-granit/35 bg-craie px-3 py-2 text-sm tabular text-schiste focus:border-schiste focus:outline-none"
+            />
+          </label>
+        </div>
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            className="rounded-surface bg-schiste px-4 py-2 text-sm font-medium text-craie"
+          >
+            Ajouter
+          </button>
+        </div>
+      </form>
+    </details>
   )
 }
 

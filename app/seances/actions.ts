@@ -240,6 +240,71 @@ export async function seedDefaultTemplates(): Promise<void> {
   redirect(`/seances?seeded=${rows.length}`)
 }
 
+const SESSION_TYPE_VALUES = [
+  'endurance',
+  'seuil',
+  'vma',
+  'cote',
+  'longue',
+  'recup',
+  'renfo',
+  'rando',
+  'course',
+] as const
+
+function parseOptionalInt(v: FormDataEntryValue | null): number | null {
+  if (v == null) return null
+  const s = String(v).trim()
+  if (!s) return null
+  const n = Number(s)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return Math.round(n)
+}
+
+function failWith(msg: string): never {
+  redirect('/seances?erreur=' + encodeURIComponent(msg))
+}
+
+export async function createTemplate(formData: FormData): Promise<void> {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const name = String(formData.get('name') ?? '').trim()
+  const sessionType = String(formData.get('session_type') ?? '').trim()
+  const intent = String(formData.get('intent') ?? '').trim()
+  const durationMin = parseOptionalInt(formData.get('duration_min'))
+  const distanceKm = formData.get('distance_km')
+    ? Number(String(formData.get('distance_km')).replace(',', '.'))
+    : null
+  const elevationM = parseOptionalInt(formData.get('elevation_m'))
+
+  if (!name) failWith('Nom obligatoire.')
+  if (!(SESSION_TYPE_VALUES as readonly string[]).includes(sessionType))
+    failWith('Type invalide.')
+  if (!intent) failWith('Intent obligatoire (structure + allure + terrain).')
+
+  const durationS = durationMin != null ? durationMin * 60 : null
+  const distanceM =
+    distanceKm != null && Number.isFinite(distanceKm) && distanceKm > 0
+      ? Math.round(distanceKm * 1000)
+      : null
+
+  const { error } = await supabase.from('session_templates').insert({
+    tenant_id: user.id,
+    name,
+    session_type: sessionType,
+    intent,
+    default_duration_s: durationS,
+    default_distance_m: distanceM,
+    default_elevation_m: elevationM,
+  })
+  if (error) failWith(`Creation impossible : ${error.message}`)
+
+  revalidatePath('/seances')
+  redirect('/seances?ajoute=1')
+}
+
 export async function deleteTemplate(formData: FormData): Promise<void> {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()

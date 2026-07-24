@@ -17,9 +17,12 @@ import {
   type WeeklyActivity,
 } from '@/lib/analytics'
 import {
+  computeVerticalSpeed,
   derivePaces,
   formatPaceZone,
+  formatVerticalSpeed,
   hasReferenceTimes,
+  inferReferenceTimesFromRaces,
 } from '@/lib/paces'
 
 const WEEK_COUNT = 13
@@ -170,14 +173,27 @@ export default async function DashboardPage() {
 
   const races = (doneRaces ?? []) as RaceRow[]
 
-  const refs = {
+  const savedRefs = {
     ref_5km_s: athleteRow?.ref_5km_s ?? null,
     ref_10km_s: athleteRow?.ref_10km_s ?? null,
     ref_semi_s: athleteRow?.ref_semi_s ?? null,
     ref_marathon_s: athleteRow?.ref_marathon_s ?? null,
   }
+  const { refs, inferred } = inferReferenceTimesFromRaces(
+    savedRefs,
+    races.map((r) => ({
+      distance_m: r.distance_m,
+      elevation_gain_m: r.elevation_gain_m,
+      result_time_s: r.result_time_s,
+      race_date: r.race_date,
+    })),
+    new Date(),
+  )
   const paces = derivePaces(refs)
   const hasRefs = hasReferenceTimes(refs)
+  const anyInferred = Object.keys(inferred).length > 0
+
+  const vSpeed = computeVerticalSpeed(activities)
 
   return (
     <main className="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
@@ -200,7 +216,7 @@ export default async function DashboardPage() {
         <BigStat label="Plus longue" value={formatDistance(longestM)} />
       </section>
 
-      {hasRefs && (
+      {(hasRefs || vSpeed) && (
         <section className="rounded-data border border-brume bg-craie p-3 sm:p-4">
           <div className="flex items-baseline justify-between">
             <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
@@ -213,11 +229,17 @@ export default async function DashboardPage() {
               modifier
             </Link>
           </div>
-          <ul className="mt-3 grid gap-2 sm:grid-cols-3">
+          <ul className="mt-3 grid gap-2 sm:grid-cols-4">
             <PaceRow label="Endurance fondamentale" zone={paces.ef} />
             <PaceRow label="Seuil" zone={paces.seuil} />
             <PaceRow label="VMA courte" zone={paces.vma} />
+            <VSpeedRow vSpeed={vSpeed} />
           </ul>
+          {anyInferred && (
+            <p className="mt-3 text-[11px] italic text-granit">
+              Allures affinees a partir de tes courses terminees recentes.
+            </p>
+          )}
         </section>
       )}
 
@@ -508,6 +530,28 @@ function PaceRow({
       <div className="tabular mt-1 font-mono text-sm text-schiste">
         {zone ? formatPaceZone(zone) : '—'}
       </div>
+    </li>
+  )
+}
+
+function VSpeedRow({
+  vSpeed,
+}: {
+  vSpeed: ReturnType<typeof computeVerticalSpeed>
+}) {
+  return (
+    <li className="rounded-data border border-brume bg-brume/40 px-3 py-2">
+      <div className="font-mono text-[10px] uppercase text-granit">
+        Vitesse verticale
+      </div>
+      <div className="tabular mt-1 font-mono text-sm text-schiste">
+        {vSpeed ? formatVerticalSpeed(vSpeed.medianMPerHour) : '—'}
+      </div>
+      {vSpeed && (
+        <div className="mt-0.5 font-mono text-[9px] text-granit">
+          med. sur {vSpeed.sampleSize} sortie{vSpeed.sampleSize > 1 ? 's' : ''} ≥ 300 m D+
+        </div>
+      )}
     </li>
   )
 }

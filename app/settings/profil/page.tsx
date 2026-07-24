@@ -2,10 +2,14 @@ import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { ScreenTitle } from '@/components/screen-title'
 import {
+  computeVerticalSpeed,
   derivePaces,
   formatPaceZone,
   formatTime,
+  formatVerticalSpeed,
   hasReferenceTimes,
+  inferReferenceTimesFromRaces,
+  KM_LABEL,
 } from '@/lib/paces'
 import { updateReferenceTimes } from './actions'
 
@@ -20,19 +24,51 @@ export default async function ProfilPage({
 
   const { ok, erreur } = await searchParams
 
-  const { data: athlete } = await supabase
-    .from('athletes')
-    .select('ref_5km_s, ref_10km_s, ref_semi_s, ref_marathon_s')
-    .maybeSingle()
+  const todayIso = new Date().toISOString().slice(0, 10)
+  const DAY_MS = 24 * 60 * 60 * 1000
+  const since90d = new Date(Date.now() - 90 * DAY_MS).toISOString()
 
-  const refs = {
+  const [{ data: athlete }, { data: doneRaces }, { data: recentActs }] =
+    await Promise.all([
+      supabase
+        .from('athletes')
+        .select('ref_5km_s, ref_10km_s, ref_semi_s, ref_marathon_s')
+        .maybeSingle(),
+      supabase
+        .from('races')
+        .select('distance_m, elevation_gain_m, result_time_s, race_date')
+        .eq('status', 'terminee')
+        .lt('race_date', todayIso)
+        .not('result_time_s', 'is', null)
+        .order('race_date', { ascending: false })
+        .limit(20),
+      supabase
+        .from('activities')
+        .select('distance_m, elevation_gain_m, moving_time_s')
+        .gte('started_at', since90d),
+    ])
+
+  const savedRefs = {
     ref_5km_s: athlete?.ref_5km_s ?? null,
     ref_10km_s: athlete?.ref_10km_s ?? null,
     ref_semi_s: athlete?.ref_semi_s ?? null,
     ref_marathon_s: athlete?.ref_marathon_s ?? null,
   }
+  const { refs, inferred } = inferReferenceTimesFromRaces(
+    savedRefs,
+    (doneRaces ?? []).map((r) => ({
+      distance_m: r.distance_m,
+      elevation_gain_m: r.elevation_gain_m,
+      result_time_s: r.result_time_s,
+      race_date: r.race_date,
+    })),
+    new Date(),
+  )
   const paces = derivePaces(refs)
   const anyRef = hasReferenceTimes(refs)
+  const inferredKeys = Object.keys(inferred) as (keyof typeof inferred)[]
+
+  const vSpeed = computeVerticalSpeed(recentActs ?? [])
 
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
@@ -139,9 +175,63 @@ export default async function ProfilPage({
                   ? 'Sans semi ni 10 km, le seuil est estimé depuis le 5 km avec marge de sécurité.'
                   : ''}
           </p>
+          {inferredKeys.length > 0 && (
+            <p className="mt-2 text-xs italic text-granit">
+              Certaines valeurs ont été affinées depuis tes courses terminées :{' '}
+              {inferredKeys.map((k) => KM_LABEL[k]).join(', ')}.
+            </p>
+          )}
         </section>
       )}
+
+      <section className="rounded-data border border-brume bg-craie p-4">
+        <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
+          Vitesse verticale
+        </h2>
+        <p className="mt-2 text-sm text-granit">
+          Calculée depuis tes activités des 90 derniers jours ayant au moins
+          300 m D+. Sert à estimer le temps sur les courses de trail avec un
+          gros dénivelé.
+        </p>
+        {vSpeed ? (
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <VSpeedStat
+              label="Médiane"
+              value={formatVerticalSpeed(vSpeed.medianMPerHour)}
+              hint={`sur ${vSpeed.sampleSize} sortie${vSpeed.sampleSize > 1 ? 's' : ''}`}
+            />
+            <VSpeedStat
+              label="Meilleure"
+              value={formatVerticalSpeed(vSpeed.bestMPerHour)}
+              hint="max récent"
+            />
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-granit">
+            Aucune sortie ≥ 300 m D+ dans les 90 derniers jours — la mesure se
+            débloquera dès qu&apos;une sortie vallonnée sera enregistrée.
+          </p>
+        )}
+      </section>
     </main>
+  )
+}
+
+function VSpeedStat({
+  label,
+  value,
+  hint,
+}: {
+  label: string
+  value: string
+  hint: string
+}) {
+  return (
+    <div className="rounded-data border border-brume bg-brume/40 px-3 py-2">
+      <div className="font-mono text-[10px] uppercase text-granit">{label}</div>
+      <div className="tabular mt-1 font-mono text-lg text-schiste">{value}</div>
+      <div className="mt-0.5 font-mono text-[10px] text-granit">{hint}</div>
+    </div>
   )
 }
 

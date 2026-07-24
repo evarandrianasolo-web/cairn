@@ -11,6 +11,13 @@ import {
   formatJMinus,
   formatRaceDate,
 } from '@/lib/format'
+import {
+  computeVerticalSpeed,
+  estimateRaceTime,
+  formatPace,
+  formatVerticalSpeed,
+  inferReferenceTimesFromRaces,
+} from '@/lib/paces'
 
 const LONG_SECS = 90 * 60
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -53,33 +60,83 @@ export default async function CourseFichePage({
     .maybeSingle()
   if (!race) redirect('/courses')
 
-  const [{ data: linkedActivity }, { data: debrief }, { data: fuelingLogs }] =
-    await Promise.all([
-      supabase
-        .from('activities')
-        .select('id, name, distance_m, elevation_gain_m, moving_time_s, elapsed_time_s, user_notes')
-        .eq('race_id', race.id)
-        .maybeSingle(),
-      supabase
-        .from('debriefs')
-        .select(
-          'id, kind, narrative, what_worked, what_failed, focus_areas, created_at',
-        )
-        .eq('race_id', race.id)
-        .maybeSingle(),
-      supabase
-        .from('fueling_logs')
-        .select(
-          'activity_id, intake_pattern, carbs_g, carbs_g_per_hour, issue, products, notes, activity:activities!fueling_logs_activity_id_fkey(started_at, name, moving_time_s)',
-        )
-        .order('created_at', { ascending: false })
-        .limit(20),
-    ])
+  const DAY_MS = 24 * 60 * 60 * 1000
+  const since90d = new Date(Date.now() - 90 * DAY_MS).toISOString()
+  const todayIso = new Date().toISOString().slice(0, 10)
+
+  const [
+    { data: linkedActivity },
+    { data: debrief },
+    { data: fuelingLogs },
+    { data: athlete },
+    { data: recentActs },
+    { data: doneRaces },
+  ] = await Promise.all([
+    supabase
+      .from('activities')
+      .select('id, name, distance_m, elevation_gain_m, moving_time_s, elapsed_time_s, user_notes')
+      .eq('race_id', race.id)
+      .maybeSingle(),
+    supabase
+      .from('debriefs')
+      .select(
+        'id, kind, narrative, what_worked, what_failed, focus_areas, created_at',
+      )
+      .eq('race_id', race.id)
+      .maybeSingle(),
+    supabase
+      .from('fueling_logs')
+      .select(
+        'activity_id, intake_pattern, carbs_g, carbs_g_per_hour, issue, products, notes, activity:activities!fueling_logs_activity_id_fkey(started_at, name, moving_time_s)',
+      )
+      .order('created_at', { ascending: false })
+      .limit(20),
+    supabase
+      .from('athletes')
+      .select('ref_5km_s, ref_10km_s, ref_semi_s, ref_marathon_s')
+      .maybeSingle(),
+    supabase
+      .from('activities')
+      .select('distance_m, elevation_gain_m, moving_time_s')
+      .gte('started_at', since90d),
+    supabase
+      .from('races')
+      .select('distance_m, elevation_gain_m, result_time_s, race_date')
+      .eq('status', 'terminee')
+      .lt('race_date', todayIso)
+      .not('result_time_s', 'is', null)
+      .neq('id', race.id)
+      .order('race_date', { ascending: false })
+      .limit(20),
+  ])
 
   const isUpcoming = !race.status || race.status !== 'terminee'
   const j = daysUntil(race.race_date)
   const goalS = race.goal_time_s ?? null
   const resultS = race.result_time_s ?? null
+
+  const savedRefs = {
+    ref_5km_s: athlete?.ref_5km_s ?? null,
+    ref_10km_s: athlete?.ref_10km_s ?? null,
+    ref_semi_s: athlete?.ref_semi_s ?? null,
+    ref_marathon_s: athlete?.ref_marathon_s ?? null,
+  }
+  const { refs } = inferReferenceTimesFromRaces(
+    savedRefs,
+    (doneRaces ?? []).map((r) => ({
+      distance_m: r.distance_m,
+      elevation_gain_m: r.elevation_gain_m,
+      result_time_s: r.result_time_s,
+      race_date: r.race_date,
+    })),
+    new Date(),
+  )
+  const vSpeed = computeVerticalSpeed(recentActs ?? [])
+  const estimate = estimateRaceTime(
+    { distance_m: race.distance_m, elevation_gain_m: race.elevation_gain_m },
+    refs,
+    vSpeed,
+  )
 
   const longsFuelings = extractRelevantFuelings(
     (fuelingLogs ?? []) as FuelingLog[],
@@ -142,6 +199,48 @@ export default async function CourseFichePage({
           />
         </div>
       </section>
+
+      {isUpcoming && estimate && (
+        <section className="rounded-data border border-brume bg-craie p-4">
+          <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
+            Estimation
+          </h2>
+          <p className="mt-2 text-xs italic text-granit">
+            Riegel depuis ton meilleur temps + coût D+
+            {estimate.source === 'refs+vspeed'
+              ? ` (${formatVerticalSpeed(vSpeed?.medianMPerHour ?? 0)})`
+              : ' (8 min / 100 m, faute de sortie vallonnée récente)'}
+            . Estimation indicative, à confronter à tes sensations le jour J.
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <Stat
+              label="Temps estimé"
+              value={formatDuree(estimate.estimatedTimeS)}
+              highlight
+            />
+            <Stat
+              label="Allure moyenne"
+              value={formatPace(estimate.averagePaceSPerKm)}
+            />
+            {(race.elevation_gain_m ?? 0) > 0 && (
+              <Stat
+                label="Coût D+"
+                value={`+${formatDuree(estimate.verticalCostS)}`}
+              />
+            )}
+          </div>
+          {goalS && (
+            <p className="mt-3 text-sm text-schiste">
+              <span className="font-medium">Objectif saisi :</span>{' '}
+              {formatDuree(goalS)}
+              {' — '}
+              {goalS < estimate.estimatedTimeS
+                ? `${formatDuree(estimate.estimatedTimeS - goalS)} plus rapide que l'estimation.`
+                : `${formatDuree(goalS - estimate.estimatedTimeS)} de marge sur l'estimation.`}
+            </p>
+          )}
+        </section>
+      )}
 
       {race.notes && (
         <section className="rounded-data border border-brume bg-craie p-4">
