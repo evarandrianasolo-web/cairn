@@ -4,6 +4,9 @@
  * un JSON parsable. Consomme par app/planning/actions.ts.
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { formatDistance, formatDplus, formatDuree } from '@/lib/format'
+
 export const PLAN_WEEK_SYSTEM = `Tu es le coach trail d'Eva. Elle te demande de proposer une semaine d'entrainement (lundi -> dimanche) coherente avec son contexte : charge des 4 dernieres semaines, prochaine course A, contraintes actives, derniers debriefs et logs fueling.
 
 Regles non negociables :
@@ -49,6 +52,8 @@ Format demande :
   - is_club : true si c'est une seance imposee par le club (mardi / jeudi actuellement, ou selon contraintes)
 
 Si le contexte fournit des ALLURES CIBLES calculees (EF / Seuil / VMA courte), utilise-les DIRECTEMENT dans les intents plutot que de dire "au seuil" abstraitement. Sans references, reste sur des reperes de ressenti.
+
+Si le contexte fournit une BIBLIOTHEQUE PERSONNELLE DE SEANCES : ce sont des modeles qu'Eva a enregistres pour te rendre la vie plus facile. Tu peux les REUTILISER TELS QUELS quand ils correspondent (recopier l'intent, garder duree / distance / D+), ou t'en INSPIRER pour composer une variante calibree au contexte de la semaine. Ce n'est PAS une liste exclusive : si le contexte demande autre chose (une seance specifique liee a un axe, une adaptation a une contrainte), tu proposes librement, c'est ton role de coach.
 
 Reponds UNIQUEMENT en JSON conforme au schema. Aucun preambule.`
 
@@ -123,6 +128,56 @@ export type ProposedSession = {
   distance_km: number | null
   elevation_m: number | null
   is_club: boolean
+}
+
+const TEMPLATE_TYPE_LABEL: Record<string, string> = {
+  endurance: 'EF',
+  seuil: 'Seuil',
+  vma: 'VMA',
+  cote: 'Cotes',
+  longue: 'Longue',
+  recup: 'Recup',
+  renfo: 'Renfo',
+  rando: 'Rando',
+  course: 'Course',
+}
+
+/**
+ * Bloc "Bibliotheque personnelle" injecte au userPrompt. Format
+ * compact pour eviter de gonfler le contexte : nom + type + duree
+ * + distance + D+, sans les intents complets (le coach peut piocher
+ * via get_session_templates si besoin de detail).
+ *
+ * Retourne "" si la banque est vide -- pas d'entete inutile.
+ */
+export async function buildBibliothequeBlock(
+  supabase: SupabaseClient,
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('session_templates')
+    .select(
+      'name, session_type, intent, default_duration_s, default_distance_m, default_elevation_m',
+    )
+    .order('session_type', { ascending: true })
+    .order('name', { ascending: true })
+    .limit(40)
+  if (error || !data || data.length === 0) return ''
+
+  const lines = data.map((t) => {
+    const label = TEMPLATE_TYPE_LABEL[t.session_type ?? ''] ?? t.session_type
+    const bits: string[] = []
+    if (t.default_duration_s) bits.push(formatDuree(t.default_duration_s))
+    if (t.default_distance_m) bits.push(formatDistance(t.default_distance_m))
+    if (t.default_elevation_m) bits.push(formatDplus(t.default_elevation_m))
+    const meta = bits.length > 0 ? ` (${bits.join(' · ')})` : ''
+    const shortIntent =
+      typeof t.intent === 'string' && t.intent.length > 0
+        ? ` — ${t.intent.slice(0, 140)}`
+        : ''
+    return `- [${label}] ${t.name}${meta}${shortIntent}`
+  })
+
+  return `\n## Bibliotheque personnelle de seances (${data.length} modeles)\nInspiration -- non exclusive. Reutilise / adapte / ignore selon la semaine.\n${lines.join('\n')}\n`
 }
 
 export type ProposedWeek = {

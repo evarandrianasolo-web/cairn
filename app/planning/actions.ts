@@ -6,6 +6,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { anthropic, COACH_MODEL } from '@/lib/ai/anthropic'
 import { buildCoachContext } from '@/lib/ai/context'
 import {
+  buildBibliothequeBlock,
   PLAN_WEEK_SCHEMA,
   PLAN_WEEK_SYSTEM,
   type ProposedWeek,
@@ -134,13 +135,14 @@ async function generateOneWeek(
   )
   const periodizationBlock = await buildPeriodizationBlock(supabase, targetMondayIso)
   const activeAxesBlock = await buildActiveAxesBlock(supabase)
+  const bibliothequeBlock = await buildBibliothequeBlock(supabase)
   const context = await buildCoachContext(supabase)
   const hintBlock = userHint
     ? `\n## Notes d'Eva pour cette semaine\n${userHint}\n\nCes notes sont des consignes explicites : respecte-les tant qu'elles ne contredisent pas les regles non negociables.\n`
     : ''
   const userPrompt = `## Semaine a planifier
 ${cible}
-${activeAxesBlock}${periodizationBlock}${constraintsBlock}${hintBlock}
+${activeAxesBlock}${periodizationBlock}${constraintsBlock}${bibliothequeBlock}${hintBlock}
 ## Contexte general
 ${context}
 
@@ -344,6 +346,7 @@ export async function readjustPlanWeek(formData: FormData): Promise<void> {
   )
   const periodizationBlock = await buildPeriodizationBlock(supabase, mondayIso)
   const activeAxesBlock = await buildActiveAxesBlock(supabase)
+  const bibliothequeBlock = await buildBibliothequeBlock(supabase)
   const context = await buildCoachContext(supabase)
   const hintBlock = userHint
     ? `\n## Notes d'Eva pour ce reajustement\n${userHint}\n\nConsignes explicites : respecte-les tant qu'elles ne contredisent pas les regles non negociables.\n`
@@ -352,7 +355,7 @@ export async function readjustPlanWeek(formData: FormData): Promise<void> {
   const userPrompt = `## Semaine en cours a reajuster
 Semaine ISO ${pw.iso_week}/${pw.iso_year} · du ${mondayIso} au ${sundayIso} · aujourd'hui = ${todayIso}
 Phase actuelle : ${pw.phase}
-${activeAxesBlock}${periodizationBlock}${constraintsBlock}${hintBlock}
+${activeAxesBlock}${periodizationBlock}${constraintsBlock}${bibliothequeBlock}${hintBlock}
 ## Ce qui a ete fait ou manque jusqu'a aujourd'hui
 ${doneLines.length > 0 ? doneLines.join('\n') : 'Rien de particulier.'}
 

@@ -269,43 +269,219 @@ export type RaceEstimate = {
   flatEquivalentTimeS: number
   averagePaceSPerKm: number
   verticalCostS: number
-  source: 'refs' | 'refs+vspeed'
+  source: 'similar' | 'refs+vspeed' | 'refs'
+  sampleSize: number
+  similarProfile: boolean
+}
+
+export type SimilarEffort = {
+  distance_m: number
+  elevation_gain_m: number | null
+  time_s: number
 }
 
 /**
- * Estime le temps sur une course (flat -> Riegel puis coût D+).
+ * Estime a partir d'efforts similaires par regression lineaire :
+ *   time_s ≈ a × distance_km + b × D+_m
  *
- * flat part : depuis le meilleur ref, on utilise Riegel pour
- * extrapoler a la distance cible. On applique une petite penalite
- * "endurance" au-dela du semi (10 % ajoute par tranche de 10 km
- * au-dela de 21 km) : Riegel sous-estime les longues distances
- * pour un athlete non specifique ultra.
+ * a = allure plate en s/km, b = cout par metre de D+ en s.
+ * Les deux sont calibres sur les activites recentes de l'athlete --
+ * pas de constante universelle : la meme UTMJ donnera un temps
+ * different pour Eva et pour un traileur experimente.
  *
- * cout D+ : si on a une vitesse verticale mesuree, on la applique.
- * Sinon, heuristique conservatrice de 8 min par 100 m D+ (typique
- * ultra amateur).
+ * Selection du pool en 3 couches, du plus specifique au plus general :
+ *   1. Efforts au meme profil (ratio D+/km +/- 30 %) ET taille
+ *      comparable (>= 30 % de la distance cible)
+ *   2. Efforts au meme profil, toute taille
+ *   3. Toute sortie vallonnee (D+/km >= 15 m/km) OU pool entier
+ *
+ * La regression a besoin d'au moins 3 points ET d'assez de
+ * variabilite en D+ (sinon b est indeterminable) ; sinon on retombe
+ * sur une simple allure plate mediane, et le cout D+ est ajoute
+ * ensuite via vSpeed / defaut.
+ */
+function fitLinearEffort(pool: SimilarEffort[]): {
+  aSPerKm: number
+  bSPerMDplus: number | null
+} | null {
+  if (pool.length === 0) return null
+  const points = pool.map((e) => ({
+    km: e.distance_m / 1000,
+    dplus: e.elevation_gain_m ?? 0,
+    t: e.time_s,
+  }))
+  if (points.length < 3) {
+    // Pas assez pour deux inconnues -- allure plate seule
+    const meanPace =
+      points.reduce((s, p) => s + p.t / Math.max(p.km, 0.001), 0) /
+      points.length
+    return { aSPerKm: meanPace, bSPerMDplus: null }
+  }
+
+  // Systeme normal (moindres carres) sur [a, b]
+  let sxx = 0
+  let sxy = 0
+  let syy = 0
+  let tx = 0
+  let ty = 0
+  for (const p of points) {
+    sxx += p.km * p.km
+    sxy += p.km * p.dplus
+    syy += p.dplus * p.dplus
+    tx += p.km * p.t
+    ty += p.dplus * p.t
+  }
+  const det = sxx * syy - sxy * sxy
+  if (Math.abs(det) < 1e-6 || syy < 1) {
+    // D+ trop uniforme, on ne peut pas separer les deux
+    const meanPace = tx / sxx
+    return { aSPerKm: meanPace, bSPerMDplus: null }
+  }
+  const a = (syy * tx - sxy * ty) / det
+  const b = (sxx * ty - sxy * tx) / det
+  return {
+    aSPerKm: Math.max(a, 60), // garde-fou : au moins 1 min/km
+    bSPerMDplus: Math.max(b, 0), // pas de coût D+ negatif
+  }
+}
+
+function estimateFromSimilar(
+  target: { distance_m: number; elevation_gain_m: number },
+  pool: SimilarEffort[],
+  vSpeed: VerticalSpeed | null,
+): {
+  estimatedTimeS: number
+  averagePaceSPerKm: number
+  verticalCostS: number
+  flatEquivalentTimeS: number
+  sampleSize: number
+  similarProfile: boolean
+} | null {
+  const eligible = pool.filter(
+    (e) =>
+      e.distance_m >= 5000 &&
+      e.time_s > 5 * 60 &&
+      (e.elevation_gain_m ?? 0) >= 0,
+  )
+  if (eligible.length === 0) return null
+
+  const targetKm = target.distance_m / 1000
+  const targetRatio = target.elevation_gain_m / targetKm
+
+  const tier1 = eligible.filter((e) => {
+    const km = e.distance_m / 1000
+    const ratio = (e.elevation_gain_m ?? 0) / km
+    const ratioMatches =
+      targetRatio > 0
+        ? Math.abs(ratio - targetRatio) / targetRatio <= 0.3
+        : ratio <= 20
+    const sizeMatches = km >= targetKm * 0.3
+    return ratioMatches && sizeMatches
+  })
+  const tier2 = eligible.filter((e) => {
+    const km = e.distance_m / 1000
+    const ratio = (e.elevation_gain_m ?? 0) / km
+    return targetRatio > 0
+      ? Math.abs(ratio - targetRatio) / targetRatio <= 0.3
+      : ratio <= 20
+  })
+  const tier3 = eligible.filter((e) => {
+    const km = e.distance_m / 1000
+    return (e.elevation_gain_m ?? 0) / km >= 15
+  })
+
+  const [selected, similarProfile] =
+    tier1.length >= 3
+      ? [tier1, true]
+      : tier2.length >= 3
+        ? [tier2, true]
+        : tier3.length >= 3
+          ? [tier3, false]
+          : [eligible, false]
+
+  const fit = fitLinearEffort(selected)
+  if (!fit) return null
+
+  const flatEquivalentTimeS = Math.round(fit.aSPerKm * targetKm)
+  let verticalCostS = 0
+  if (target.elevation_gain_m > 0) {
+    if (fit.bSPerMDplus != null && fit.bSPerMDplus > 0) {
+      verticalCostS = Math.round(fit.bSPerMDplus * target.elevation_gain_m)
+    } else if (vSpeed && vSpeed.medianMPerHour > 0) {
+      verticalCostS = Math.round(
+        (target.elevation_gain_m / vSpeed.medianMPerHour) * 3600,
+      )
+    } else {
+      verticalCostS = Math.round((target.elevation_gain_m / 100) * 8 * 60)
+    }
+  }
+  const estimatedTimeS = flatEquivalentTimeS + verticalCostS
+
+  return {
+    estimatedTimeS,
+    averagePaceSPerKm: Math.round(estimatedTimeS / targetKm),
+    verticalCostS,
+    flatEquivalentTimeS,
+    sampleSize: selected.length,
+    similarProfile,
+  }
+}
+
+/**
+ * Estime le temps sur une course. Priorite absolue aux donnees
+ * comparables :
+ *
+ *   1. Efforts similaires -- courses trail passees ou longues sorties
+ *      au meme profil (ratio D+/km +/- 30 %). C'est le modele betrail :
+ *      on regarde ce que l'athlete FAIT en trail, pas ce qu'on
+ *      extrapole de son 10 km route.
+ *   2. Refs route + vitesse verticale mesuree : deuxieme choix si on
+ *      n'a rien de comparable. Riegel pour le flat + heures de D+
+ *      selon la vSpeed mediane recente.
+ *   3. Refs route + cout D+ standard : dernier recours.
+ *
+ * Une course de trail estimee depuis un 10 km route donne un chiffre
+ * trompeur sur du D+ significatif ; l'ordre ci-dessus refuse cette
+ * approche par defaut des qu'un pool similaire existe.
  */
 export function estimateRaceTime(
   race: { distance_m: number | null; elevation_gain_m: number | null },
   refs: ReferenceTimes,
   vSpeed: VerticalSpeed | null,
+  similar: SimilarEffort[] = [],
 ): RaceEstimate | null {
   if (!race.distance_m || race.distance_m <= 0) return null
+  const dPlus = race.elevation_gain_m ?? 0
+  const targetKm = race.distance_m / 1000
 
+  // 1. Efforts similaires -- meilleure source pour le trail.
+  const fromSimilar = estimateFromSimilar(
+    { distance_m: race.distance_m, elevation_gain_m: dPlus },
+    similar,
+    vSpeed,
+  )
+  if (fromSimilar) {
+    return {
+      estimatedTimeS: fromSimilar.estimatedTimeS,
+      flatEquivalentTimeS: fromSimilar.flatEquivalentTimeS,
+      averagePaceSPerKm: fromSimilar.averagePaceSPerKm,
+      verticalCostS: fromSimilar.verticalCostS,
+      source: 'similar',
+      sampleSize: fromSimilar.sampleSize,
+      similarProfile: fromSimilar.similarProfile,
+    }
+  }
+
+  // 2 + 3. Fallback route -- utile uniquement pour les courses tres
+  // roulantes ou en l'absence de sortie vallonnee dans l'historique.
   const bestRef = pickBestRef(refs)
   if (!bestRef) return null
-
-  const targetKm = race.distance_m / 1000
   const flatBase =
     bestRef.timeS * Math.pow(targetKm / bestRef.km, RIEGEL_EXP)
-
-  // Penalite endurance ultra : +10 % par 10 km au-dela de 21 km.
   const enduranceMul =
     targetKm > KM_SEMI ? 1 + ((targetKm - KM_SEMI) / 10) * 0.1 : 1
   const flatEquivalentTimeS = Math.round(flatBase * enduranceMul)
 
-  // Cout D+ : m D+ / (m/h) -> heures.
-  const dPlus = race.elevation_gain_m ?? 0
   let verticalCostS = 0
   let source: 'refs' | 'refs+vspeed' = 'refs'
   if (dPlus > 0) {
@@ -313,20 +489,19 @@ export function estimateRaceTime(
       verticalCostS = Math.round((dPlus / vSpeed.medianMPerHour) * 3600)
       source = 'refs+vspeed'
     } else {
-      // 8 min par 100 m D+ -- fallback ultra amateur conservateur.
       verticalCostS = Math.round((dPlus / 100) * 8 * 60)
     }
   }
-
   const estimatedTimeS = flatEquivalentTimeS + verticalCostS
-  const averagePaceSPerKm = Math.round(estimatedTimeS / targetKm)
 
   return {
     estimatedTimeS,
     flatEquivalentTimeS,
-    averagePaceSPerKm,
+    averagePaceSPerKm: Math.round(estimatedTimeS / targetKm),
     verticalCostS,
     source,
+    sampleSize: 0,
+    similarProfile: false,
   }
 }
 
