@@ -269,8 +269,9 @@ export type RaceEstimate = {
   flatEquivalentTimeS: number
   averagePaceSPerKm: number
   verticalCostS: number
-  source: 'reference' | 'refs+vspeed' | 'refs'
+  source: 'reference' | 'route-refs' | 'refs+vspeed' | 'refs'
   referenceEffort: ReferenceEffort | null
+  routeRefKm: number | null
 }
 
 export type SimilarEffort = {
@@ -402,20 +403,28 @@ function estimateFromReference(
   }
 }
 
+export type RaceTerrain = 'route' | 'trail' | 'mixte'
+
 /**
- * Estime le temps sur une course. Priorite absolue aux donnees
- * comparables :
+ * Estime le temps sur une course. La strategie depend du terrain :
  *
- *   1. Effort de reference dominant -- une course/activite passee au
- *      profil D+/km proche (idealement une course terminee de meme
- *      distance ou plus courte). Extrapolation Riegel sur effort-km.
- *      C'est le modele betrail : on part de ce que l'athlete a
- *      REELLEMENT fait sur un profil comparable.
- *   2. Refs route + vitesse verticale mesuree.
- *   3. Refs route + cout D+ standard.
+ *   - route : Riegel direct depuis les temps de reference route.
+ *     Aucun scan du pool trail -- il n'apporte rien pour du plat.
+ *   - trail : cherche une reference dominante (course/activite au
+ *     profil D+/km proche) et extrapole via Riegel effort-km.
+ *     Fallback refs route + vSpeed si le pool est trop pauvre.
+ *   - mixte : trail en premier ; si aucune reference trouvee, on
+ *     mixe refs route (part flat) + vSpeed (part verticale).
+ *
+ * Un garde-fou auto-detecte le cas "route deguisee" : si D+/km < 5,
+ * on force la strategie route meme si terrain='trail'.
  */
 export function estimateRaceTime(
-  race: { distance_m: number | null; elevation_gain_m: number | null },
+  race: {
+    distance_m: number | null
+    elevation_gain_m: number | null
+    terrain?: RaceTerrain | null
+  },
   refs: ReferenceTimes,
   vSpeed: VerticalSpeed | null,
   similar: SimilarEffort[] = [],
@@ -423,8 +432,18 @@ export function estimateRaceTime(
   if (!race.distance_m || race.distance_m <= 0) return null
   const dPlus = race.elevation_gain_m ?? 0
   const targetKm = race.distance_m / 1000
+  const declaredTerrain = race.terrain ?? 'trail'
+  // Course route deguisee : D+/km < 5 -> traitement route quoi qu'il arrive.
+  const effectiveTerrain: RaceTerrain =
+    dPlus / targetKm < 5 ? 'route' : declaredTerrain
 
-  // 1. Meilleure reference dominante -- extrapolation trail directe.
+  // === Mode route : Riegel refs direct, pas de scan pool. ===
+  if (effectiveTerrain === 'route') {
+    const routeEst = estimateRouteFromRefs(targetKm, dPlus, refs, vSpeed)
+    return routeEst
+  }
+
+  // === Mode trail / mixte : cherche une reference dominante trail. ===
   const bestRef = findBestReference(
     { distance_m: race.distance_m, elevation_gain_m: dPlus },
     similar,
@@ -438,11 +457,11 @@ export function estimateRaceTime(
       ...est,
       source: 'reference',
       referenceEffort: bestRef.ref,
+      routeRefKm: null,
     }
   }
 
-  // 2 + 3. Fallback route -- utile uniquement pour les courses tres
-  // roulantes ou en l'absence de sortie vallonnee dans l'historique.
+  // === Fallback : refs route + cout D+. ===
   const routeRef = pickBestRef(refs)
   if (!routeRef) return null
   const flatBase =
@@ -470,6 +489,65 @@ export function estimateRaceTime(
     verticalCostS,
     source,
     referenceEffort: null,
+    routeRefKm: null,
+  }
+}
+
+/**
+ * Estimation dediee route : Riegel sur la ref la plus proche de la
+ * distance cible + cout D+ eventuel (rare sur route mais un semi de
+ * ville peut avoir 200-300 m D+).
+ *
+ * On choisit la ref dont la distance est la plus proche de la cible
+ * plutot que "toujours prendre la plus longue" -- pour un 5 km,
+ * partir du 5 km est plus fiable que partir du marathon.
+ */
+function estimateRouteFromRefs(
+  targetKm: number,
+  dPlus: number,
+  refs: ReferenceTimes,
+  vSpeed: VerticalSpeed | null,
+): RaceEstimate | null {
+  const candidates: { km: number; timeS: number }[] = []
+  if (refs.ref_5km_s && refs.ref_5km_s > 0)
+    candidates.push({ km: KM_5K, timeS: refs.ref_5km_s })
+  if (refs.ref_10km_s && refs.ref_10km_s > 0)
+    candidates.push({ km: KM_10K, timeS: refs.ref_10km_s })
+  if (refs.ref_semi_s && refs.ref_semi_s > 0)
+    candidates.push({ km: KM_SEMI, timeS: refs.ref_semi_s })
+  if (refs.ref_marathon_s && refs.ref_marathon_s > 0)
+    candidates.push({ km: KM_MARATHON, timeS: refs.ref_marathon_s })
+  if (candidates.length === 0) return null
+
+  // Ref la plus proche de la distance cible en log-ratio
+  candidates.sort(
+    (a, b) => Math.abs(Math.log(a.km / targetKm)) - Math.abs(Math.log(b.km / targetKm)),
+  )
+  const ref = candidates[0]
+  const flatEquivalentTimeS = Math.round(
+    ref.timeS * Math.pow(targetKm / ref.km, 1.06),
+  )
+
+  let verticalCostS = 0
+  let source: 'refs' | 'refs+vspeed' = 'refs'
+  if (dPlus > 0) {
+    if (vSpeed && vSpeed.medianMPerHour > 0) {
+      verticalCostS = Math.round((dPlus / vSpeed.medianMPerHour) * 3600)
+      source = 'refs+vspeed'
+    } else {
+      verticalCostS = Math.round((dPlus / 100) * 8 * 60)
+    }
+  }
+  const estimatedTimeS = flatEquivalentTimeS + verticalCostS
+
+  return {
+    estimatedTimeS,
+    flatEquivalentTimeS,
+    averagePaceSPerKm: Math.round(estimatedTimeS / targetKm),
+    verticalCostS,
+    source: 'route-refs',
+    referenceEffort: null,
+    routeRefKm: ref.km,
   }
 }
 

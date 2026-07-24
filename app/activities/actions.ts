@@ -67,6 +67,13 @@ export async function createRaceFromActivity(formData: FormData): Promise<void> 
 
   const resultTimeS = activity.elapsed_time_s ?? activity.moving_time_s ?? null
 
+  // Infere le terrain depuis le D+/km : route si tres plat, sinon trail.
+  const dPlusPerKm =
+    activity.distance_m && activity.distance_m > 0
+      ? ((activity.elevation_gain_m ?? 0) * 1000) / activity.distance_m
+      : 0
+  const terrain = dPlusPerKm < 10 ? 'route' : 'trail'
+
   const { data: race, error: insErr } = await supabase
     .from('races')
     .insert({
@@ -74,6 +81,7 @@ export async function createRaceFromActivity(formData: FormData): Promise<void> 
       name: activity.name?.trim() || 'Course sans titre',
       race_date: activity.started_at.slice(0, 10),
       priority,
+      terrain,
       distance_m: activity.distance_m,
       elevation_gain_m: activity.elevation_gain_m,
       result_time_s: resultTimeS,

@@ -55,7 +55,7 @@ export default async function CourseFichePage({
   const { data: race } = await supabase
     .from('races')
     .select(
-      'id, name, race_date, location, distance_m, elevation_gain_m, priority, status, goal_time_s, result_time_s, notes',
+      'id, name, race_date, location, distance_m, elevation_gain_m, priority, terrain, status, goal_time_s, result_time_s, notes',
     )
     .eq('id', id)
     .maybeSingle()
@@ -177,7 +177,11 @@ export default async function CourseFichePage({
   ]
 
   const estimate = estimateRaceTime(
-    { distance_m: race.distance_m, elevation_gain_m: race.elevation_gain_m },
+    {
+      distance_m: race.distance_m,
+      elevation_gain_m: race.elevation_gain_m,
+      terrain: race.terrain,
+    },
     refs,
     vSpeed,
     similarPool,
@@ -201,6 +205,7 @@ export default async function CourseFichePage({
       <div>
         <div className="font-mono text-[10px] uppercase tracking-wide text-granit">
           Priorité {race.priority}
+          {race.terrain ? ` · ${race.terrain}` : ''}
           {race.location ? ` · ${race.location}` : ''}
         </div>
         <ScreenTitle>{race.name}</ScreenTitle>
@@ -467,10 +472,23 @@ function estimateSourceLabel(
     const name = shortLabel ? ` « ${shortLabel} »` : ''
     return `Extrapolée depuis ta ${kind}${name}${when} (${kmLabel} km${dLabel} en ${formatDuree(r.time_s)}) via Riegel effort-km.`
   }
+  if (est.source === 'route-refs') {
+    const refLabel = est.routeRefKm ? formatKmLabel(est.routeRefKm) : 'refs route'
+    const dNote = est.verticalCostS > 0 ? ' + coût D+' : ''
+    return `Course route : Riegel depuis ton temps de référence ${refLabel}${dNote}. Renseigne tes temps dans /settings/profil pour affiner.`
+  }
   if (est.source === 'refs+vspeed') {
     return `Riegel depuis ton meilleur temps route + coût D+ (${formatVerticalSpeed(medianVSpeed ?? 0)}). Aucune sortie comparable dans l'historique.`
   }
   return `Riegel + coût D+ standard (8 min / 100 m). Aucune sortie comparable dans l'historique — l'estimation gagnera en précision quand tu auras des trails passés.`
+}
+
+function formatKmLabel(km: number): string {
+  if (Math.abs(km - 5) < 0.1) return '5 km'
+  if (Math.abs(km - 10) < 0.1) return '10 km'
+  if (Math.abs(km - 21.0975) < 0.1) return 'semi'
+  if (Math.abs(km - 42.195) < 0.1) return 'marathon'
+  return `${km.toFixed(1)} km`
 }
 
 function formatShortDate(iso: string): string {

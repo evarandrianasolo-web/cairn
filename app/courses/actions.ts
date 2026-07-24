@@ -8,6 +8,16 @@ import { parseGoalTime } from '@/lib/format'
 type RacePriority = 'A' | 'B' | 'C'
 const PRIORITIES: readonly RacePriority[] = ['A', 'B', 'C']
 
+type RaceTerrain = 'route' | 'trail' | 'mixte'
+const TERRAINS: readonly RaceTerrain[] = ['route', 'trail', 'mixte']
+
+function parseTerrain(raw: FormDataEntryValue | null): RaceTerrain {
+  const v = String(raw ?? 'trail')
+  return (TERRAINS as readonly string[]).includes(v)
+    ? (v as RaceTerrain)
+    : 'trail'
+}
+
 function coerceNumber(value: FormDataEntryValue | null): number | null {
   if (typeof value !== 'string' || value.trim() === '') return null
   const n = Number.parseFloat(value.replace(',', '.'))
@@ -43,6 +53,7 @@ export async function addRace(formData: FormData) {
     distance_m: distanceM,
     elevation_gain_m: elevationM != null ? Math.round(elevationM) : null,
     priority,
+    terrain: parseTerrain(formData.get('terrain')),
     status: 'envisagee',
     goal_time_s: goalTimeS,
     notes,
@@ -87,6 +98,7 @@ export async function updateRace(formData: FormData) {
       distance_m: distanceM,
       elevation_gain_m: elevationM != null ? Math.round(elevationM) : null,
       priority,
+      terrain: parseTerrain(formData.get('terrain')),
       goal_time_s: goalTimeS,
       notes,
       updated_at: new Date().toISOString(),

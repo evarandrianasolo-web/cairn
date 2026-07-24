@@ -73,6 +73,19 @@ export function NewRaceForm() {
         </label>
 
         <label className="col-span-2 flex flex-col gap-1">
+          <span className="text-xs text-granit">Terrain</span>
+          <select
+            name="terrain"
+            defaultValue="trail"
+            className="rounded-data border border-granit/35 bg-craie px-2 py-1.5 text-base text-schiste focus:border-schiste focus:outline-none"
+          >
+            <option value="route">Route (plat, asphalte)</option>
+            <option value="trail">Trail (nature, dénivelé)</option>
+            <option value="mixte">Mixte</option>
+          </select>
+        </label>
+
+        <label className="col-span-2 flex flex-col gap-1">
           <span className="text-xs text-granit">
             Temps cible <span className="text-granit/60">— optionnel</span>
           </span>

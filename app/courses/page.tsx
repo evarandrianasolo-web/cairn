@@ -28,7 +28,7 @@ export default async function CoursesPage({
   const { data: races } = await supabase
     .from('races')
     .select(
-      'id, name, race_date, location, distance_m, elevation_gain_m, priority, status, goal_time_s, result_time_s, notes, activities(id)',
+      'id, name, race_date, location, distance_m, elevation_gain_m, priority, terrain, status, goal_time_s, result_time_s, notes, activities(id)',
     )
     .order('race_date', { ascending: true })
 
@@ -101,6 +101,7 @@ type RaceRaw = {
   distance_m: number | null
   elevation_gain_m: number | null
   priority: 'A' | 'B' | 'C'
+  terrain: 'route' | 'trail' | 'mixte'
   status: string | null
   goal_time_s: number | null
   result_time_s: number | null

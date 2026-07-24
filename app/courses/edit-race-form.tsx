@@ -7,6 +7,8 @@ import { updateRace } from './actions'
 
 type RacePriority = 'A' | 'B' | 'C'
 
+type RaceTerrain = 'route' | 'trail' | 'mixte'
+
 type Race = {
   id: string
   name: string
@@ -15,6 +17,7 @@ type Race = {
   distance_m: number | null
   elevation_gain_m: number | null
   priority: RacePriority
+  terrain: RaceTerrain
   goal_time_s: number | null
   notes: string | null
 }
@@ -93,6 +96,19 @@ export function EditRaceForm({ race }: { race: Race }) {
             defaultValue={race.elevation_gain_m ?? ''}
             className="rounded-data border border-granit/35 bg-craie px-2 py-1.5 text-base tabular text-schiste focus:border-schiste focus:outline-none"
           />
+        </label>
+
+        <label className="col-span-2 flex flex-col gap-1">
+          <span className="text-xs text-granit">Terrain</span>
+          <select
+            name="terrain"
+            defaultValue={race.terrain}
+            className="rounded-data border border-granit/35 bg-craie px-2 py-1.5 text-base text-schiste focus:border-schiste focus:outline-none"
+          >
+            <option value="route">Route (plat, asphalte)</option>
+            <option value="trail">Trail (nature, dénivelé)</option>
+            <option value="mixte">Mixte</option>
+          </select>
         </label>
 
         <label className="col-span-2 flex flex-col gap-1">
