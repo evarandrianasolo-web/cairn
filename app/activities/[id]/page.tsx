@@ -246,14 +246,10 @@ export default async function ActivityDetailPage({
           value={activity.avg_cadence != null ? `${activity.avg_cadence}` : '—'}
         />
         {activityHealth?.avg_hr != null && (
-          <Stat
-            label="FC moy"
-            value={
-              activityHealth.max_hr != null
-                ? `${activityHealth.avg_hr} · max ${activityHealth.max_hr}`
-                : `${activityHealth.avg_hr}`
-            }
-          />
+          <Stat label="FC moy" value={`${activityHealth.avg_hr}`} />
+        )}
+        {activityHealth?.max_hr != null && (
+          <Stat label="FC max" value={`${activityHealth.max_hr}`} />
         )}
       </div>
 
