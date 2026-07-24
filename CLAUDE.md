@@ -160,7 +160,7 @@ Non mesuré. Instrumenter les tokens dès les premiers appels : `tokens_in`, `to
 
 - Commit AVANT de commencer une nouvelle tâche.
 - Format : `type(scope): description`
-- Scopes : `db`, `auth`, `strava`, `coach`, `plan`, `fueling`, `ui`, `design`, `compliance`
+- Scopes : `db`, `auth`, `strava`, `coach`, `plan`, `fueling`, `ui`, `design`, `compliance`, `billing`
 - Checkpoint demandé : `git add -A && git commit -m "..."`
 
 ---

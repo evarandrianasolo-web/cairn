@@ -47,6 +47,7 @@ const TENANT_TABLES = [
   'training_goals',
   'activity_laps',
   'activity_lap_health',
+  'subscriptions',
 ] as const
 
 let admin: SupabaseClient
