@@ -95,6 +95,62 @@ export const coachTools: Anthropic.Tool[] = [
       required: ['label', 'kind', 'type', 'impact'],
     },
   },
+  {
+    name: 'propose_race',
+    description:
+      'Propose l\'ajout d\'une course quand Eva mentionne un dossard qu\'elle vient de prendre ou une course qu\'elle vise. Le tool CREE UNE PROPOSITION EN ATTENTE, il n\'ecrit rien dans la table races. N\'appelle ce tool que si l\'information est explicite (nom + date au minimum). Ne l\'appelle pas si la course est deja dans le contexte.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Nom de la course.' },
+        race_date: {
+          type: 'string',
+          description: 'Date YYYY-MM-DD.',
+        },
+        priority: {
+          type: 'string',
+          enum: ['A', 'B', 'C'],
+          description:
+            'A = course objectif majeur, B = course preparatoire, C = course plaisir / bench.',
+        },
+        location: { type: 'string', description: 'Optionnel. Lieu.' },
+        distance_m: {
+          type: 'integer',
+          description: 'Optionnel. Distance en metres.',
+        },
+        elevation_gain_m: {
+          type: 'integer',
+          description: 'Optionnel. Denivele positif en metres.',
+        },
+        goal_time_s: {
+          type: 'integer',
+          description: 'Optionnel. Temps objectif en secondes.',
+        },
+        notes: {
+          type: 'string',
+          description:
+            'Optionnel. Notes strategiques courtes (materiel, ravito, pacing).',
+        },
+      },
+      required: ['name', 'race_date', 'priority'],
+    },
+  },
+  {
+    name: 'propose_debrief_axis',
+    description:
+      'Propose l\'ajout d\'un axe de travail au DERNIER debrief d\'Eva quand elle mentionne un apprentissage post-course qui n\'est pas encore dans les axes actifs. Le tool CREE UNE PROPOSITION EN ATTENTE. N\'appelle ce tool que si l\'axe est explicite dans le message et absent du contexte (les axes actifs sont listes). Formule l\'axe en objectif actionnable, verbe a l\'infinitif.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        axis: {
+          type: 'string',
+          description:
+            'Libelle de l\'axe. Ex : "Tester des batons sur les longues avec D+", "Renfo excentrique quadriceps pour les descentes cassantes".',
+        },
+      },
+      required: ['axis'],
+    },
+  },
 ]
 
 // ---------- Dispatcher ----------
@@ -113,6 +169,8 @@ type ToolHandler = (
 const handlers: Record<string, ToolHandler> = {
   get_activity_detail: handleGetActivityDetail,
   propose_constraint: handleProposeConstraint,
+  propose_race: handleProposeRace,
+  propose_debrief_axis: handleProposeDebriefAxis,
 }
 
 /**
@@ -319,5 +377,115 @@ async function handleProposeConstraint(
     proposal_id: data.id,
     message:
       'Proposition enregistree. Une bulle apparaitra dans la conversation avec les boutons Accepter / Rejeter pour qu\'Eva confirme.',
+  }
+}
+
+const RACE_PRIORITIES = ['A', 'B', 'C'] as const
+
+async function handleProposeRace(
+  input: unknown,
+  { supabase, tenantId, threadId }: ToolContext,
+): Promise<unknown> {
+  if (typeof input !== 'object' || input === null) return { error: 'input invalide' }
+  const i = input as Record<string, unknown>
+  const name = typeof i.name === 'string' ? i.name.trim() : ''
+  const race_date = typeof i.race_date === 'string' ? i.race_date.trim() : ''
+  const priority = String(i.priority ?? '')
+  if (!name) return { error: 'name manquant' }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(race_date))
+    return { error: 'race_date doit etre au format YYYY-MM-DD' }
+  if (!(RACE_PRIORITIES as readonly string[]).includes(priority))
+    return {
+      error: `priority invalide (attendus : ${RACE_PRIORITIES.join(', ')})`,
+    }
+
+  const toInt = (v: unknown) =>
+    typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : null
+
+  const payload = {
+    name,
+    race_date,
+    priority,
+    location: typeof i.location === 'string' ? i.location.trim() || null : null,
+    distance_m: toInt(i.distance_m),
+    elevation_gain_m: toInt(i.elevation_gain_m),
+    goal_time_s: toInt(i.goal_time_s),
+    notes: typeof i.notes === 'string' ? i.notes.trim() || null : null,
+  }
+
+  const { data, error } = await supabase
+    .from('coach_proposals')
+    .insert({
+      tenant_id: tenantId,
+      thread_id: threadId,
+      kind: 'race',
+      payload,
+      status: 'pending',
+    })
+    .select('id')
+    .single()
+  if (error) return { error: `insert proposal: ${error.message}` }
+
+  return {
+    ok: true,
+    proposal_id: data.id,
+    message:
+      'Proposition course enregistree. Bulle avec Accepter / Rejeter en fin de conversation.',
+  }
+}
+
+async function handleProposeDebriefAxis(
+  input: unknown,
+  { supabase, tenantId, threadId }: ToolContext,
+): Promise<unknown> {
+  if (typeof input !== 'object' || input === null) return { error: 'input invalide' }
+  const i = input as Record<string, unknown>
+  const axis = typeof i.axis === 'string' ? i.axis.trim() : ''
+  if (!axis) return { error: 'axis manquant' }
+  if (axis.length > 300) return { error: 'axis trop long (300 caracteres max)' }
+
+  // On lie a l'id du dernier debrief pour que l'acceptation puisse
+  // append. Si aucun debrief : proposition refusee cote tool -- le
+  // coach devrait alors passer par un debrief-from-notes.
+  const { data: lastDebrief, error: dbErr } = await supabase
+    .from('debriefs')
+    .select('id, race:races(name)')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (dbErr) return { error: `lookup debrief: ${dbErr.message}` }
+  if (!lastDebrief)
+    return {
+      error:
+        'Aucun debrief existant. Propose plutot d\'en creer un via l\'ecran /activities.',
+    }
+
+  const rawRace = (lastDebrief as { race?: { name: string } | { name: string }[] | null }).race
+  const race = Array.isArray(rawRace) ? rawRace[0] ?? null : rawRace
+
+  const payload = {
+    axis,
+    debrief_id: lastDebrief.id,
+    debrief_race_name: race?.name ?? null,
+  }
+
+  const { data, error } = await supabase
+    .from('coach_proposals')
+    .insert({
+      tenant_id: tenantId,
+      thread_id: threadId,
+      kind: 'debrief_axis',
+      payload,
+      status: 'pending',
+    })
+    .select('id')
+    .single()
+  if (error) return { error: `insert proposal: ${error.message}` }
+
+  return {
+    ok: true,
+    proposal_id: data.id,
+    message:
+      'Proposition d\'axe enregistree. L\'axe sera ajoute au dernier debrief si Eva accepte.',
   }
 }

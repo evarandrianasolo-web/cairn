@@ -27,8 +27,10 @@ export async function acceptCoachProposal(formData: FormData): Promise<void> {
   if (!proposal) throw new Error('proposition introuvable')
   if (proposal.status !== 'pending') return // idempotent
 
+  const p = proposal.payload as Record<string, unknown>
+  let appliedRef: string | null = null
+
   if (proposal.kind === 'constraint') {
-    const p = proposal.payload as Record<string, unknown>
     const { data: created, error: insErr } = await supabase
       .from('constraints')
       .insert({
@@ -46,21 +48,65 @@ export async function acceptCoachProposal(formData: FormData): Promise<void> {
       .select('id')
       .single()
     if (insErr) throw new Error(`insert constraint: ${insErr.message}`)
-
-    await supabase
-      .from('coach_proposals')
-      .update({
-        status: 'accepted',
-        applied_ref: created.id,
-        decided_at: new Date().toISOString(),
+    appliedRef = created.id
+    revalidatePath('/contraintes')
+  } else if (proposal.kind === 'race') {
+    const { data: created, error: insErr } = await supabase
+      .from('races')
+      .insert({
+        tenant_id: user.id,
+        name: p.name as string,
+        race_date: p.race_date as string,
+        priority: p.priority as string,
+        location: (p.location as string | null) ?? null,
+        distance_m: (p.distance_m as number | null) ?? null,
+        elevation_gain_m: (p.elevation_gain_m as number | null) ?? null,
+        goal_time_s: (p.goal_time_s as number | null) ?? null,
+        notes: (p.notes as string | null) ?? null,
       })
-      .eq('id', proposalId)
+      .select('id')
+      .single()
+    if (insErr) throw new Error(`insert race: ${insErr.message}`)
+    appliedRef = created.id
+    revalidatePath('/courses')
+  } else if (proposal.kind === 'debrief_axis') {
+    const debriefId = p.debrief_id as string | undefined
+    const axis = p.axis as string | undefined
+    if (!debriefId || !axis) throw new Error('payload debrief_axis invalide')
+    // Lire les focus_areas actuels et append. Le champ est jsonb array.
+    const { data: existing, error: dbErr } = await supabase
+      .from('debriefs')
+      .select('focus_areas')
+      .eq('id', debriefId)
+      .maybeSingle()
+    if (dbErr) throw new Error(`lookup debrief: ${dbErr.message}`)
+    if (!existing) throw new Error('debrief introuvable')
+    const current = Array.isArray(existing.focus_areas)
+      ? (existing.focus_areas as string[])
+      : []
+    const updated = [...current, axis]
+    const { error: upErr } = await supabase
+      .from('debriefs')
+      .update({ focus_areas: updated, updated_at: new Date().toISOString() })
+      .eq('id', debriefId)
+    if (upErr) throw new Error(`update debrief: ${upErr.message}`)
+    appliedRef = debriefId
+    revalidatePath('/debriefs')
+    revalidatePath('/dashboard')
   } else {
     throw new Error(`kind non supporte: ${proposal.kind}`)
   }
 
+  await supabase
+    .from('coach_proposals')
+    .update({
+      status: 'accepted',
+      applied_ref: appliedRef,
+      decided_at: new Date().toISOString(),
+    })
+    .eq('id', proposalId)
+
   revalidatePath(`/coach/${proposal.thread_id}`)
-  revalidatePath('/contraintes')
 }
 
 /**

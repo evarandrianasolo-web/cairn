@@ -20,12 +20,24 @@ type Message = {
 
 type Proposal = {
   id: string
-  kind: 'constraint'
+  kind: 'constraint' | 'race' | 'debrief_axis'
   payload: Record<string, unknown>
   status: 'pending' | 'accepted' | 'rejected'
   created_at: string
   decided_at: string | null
   applied_ref: string | null
+}
+
+const KIND_TITLE: Record<string, string> = {
+  constraint: 'nouvelle contrainte',
+  race: 'nouvelle course',
+  debrief_axis: 'nouvel axe de débrief',
+}
+
+const KIND_LINK: Record<string, { href: string; label: string }> = {
+  constraint: { href: '/contraintes', label: 'Voir contraintes' },
+  race: { href: '/courses', label: 'Voir courses' },
+  debrief_axis: { href: '/debriefs', label: 'Voir débriefs' },
 }
 
 const IMPACT_LABEL: Record<string, string> = {
@@ -128,18 +140,6 @@ export default async function CoachThreadPage({
 }
 
 function ProposalCard({ proposal }: { proposal: Proposal }) {
-  if (proposal.kind !== 'constraint') return null
-  const p = proposal.payload
-  const label = (p.label as string) ?? '—'
-  const type = (p.type as string) ?? ''
-  const kind = (p.kind as string) ?? ''
-  const impact = (p.impact as string) ?? ''
-  const focus = (p.focus as string | null) ?? null
-  const startsOn = (p.starts_on as string | null) ?? null
-  const endsOn = (p.ends_on as string | null) ?? null
-  const rrule = (p.recurrence_rule as string | null) ?? null
-  const notes = (p.notes as string | null) ?? null
-
   const badgeColor =
     proposal.status === 'accepted'
       ? 'border-lichen/50 text-lichen'
@@ -152,6 +152,8 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
       : proposal.status === 'rejected'
         ? 'REJETÉE'
         : 'PROPOSITION'
+  const kindTitle = KIND_TITLE[proposal.kind] ?? proposal.kind
+  const link = KIND_LINK[proposal.kind]
 
   return (
     <div className="flex justify-start">
@@ -166,35 +168,13 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
             {badgeLabel}
           </span>
           <span className="font-mono text-[10px] uppercase text-granit">
-            nouvelle contrainte
+            {kindTitle}
           </span>
         </div>
-        <p className="mt-2 text-base font-medium text-schiste">{label}</p>
-        <p className="mt-1 font-mono text-xs text-granit">
-          {[type, KIND_LABEL[kind] ?? kind, IMPACT_LABEL[impact] ?? impact]
-            .filter(Boolean)
-            .join(' · ')}
-        </p>
-        {focus && (
-          <p className="mt-1 text-sm text-schiste">
-            <span className="text-granit">focus : </span>
-            {focus}
-          </p>
-        )}
-        {(startsOn || endsOn) && (
-          <p className="tabular mt-1 font-mono text-xs text-granit">
-            {startsOn ?? '?'}
-            {endsOn ? ` → ${endsOn}` : ''}
-          </p>
-        )}
-        {rrule && (
-          <p className="tabular mt-1 font-mono text-[10px] text-granit">
-            {rrule}
-          </p>
-        )}
-        {notes && (
-          <p className="mt-2 text-sm italic text-granit">{notes}</p>
-        )}
+
+        {proposal.kind === 'constraint' && <ConstraintBody payload={proposal.payload} />}
+        {proposal.kind === 'race' && <RaceBody payload={proposal.payload} />}
+        {proposal.kind === 'debrief_axis' && <DebriefAxisBody payload={proposal.payload} />}
 
         {proposal.status === 'pending' && (
           <div className="mt-3 flex gap-2">
@@ -218,13 +198,104 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
             </form>
           </div>
         )}
-        {proposal.status === 'accepted' && proposal.applied_ref && (
+        {proposal.status === 'accepted' && proposal.applied_ref && link && (
           <p className="mt-3 font-mono text-[10px] text-granit">
-            Créée · <Link href="/contraintes" className="underline">Voir contraintes</Link>
+            Créée ·{' '}
+            <Link href={link.href} className="underline">
+              {link.label}
+            </Link>
           </p>
         )}
       </div>
     </div>
+  )
+}
+
+function ConstraintBody({ payload }: { payload: Record<string, unknown> }) {
+  const label = (payload.label as string) ?? '—'
+  const type = (payload.type as string) ?? ''
+  const kind = (payload.kind as string) ?? ''
+  const impact = (payload.impact as string) ?? ''
+  const focus = (payload.focus as string | null) ?? null
+  const startsOn = (payload.starts_on as string | null) ?? null
+  const endsOn = (payload.ends_on as string | null) ?? null
+  const rrule = (payload.recurrence_rule as string | null) ?? null
+  const notes = (payload.notes as string | null) ?? null
+  return (
+    <>
+      <p className="mt-2 text-base font-medium text-schiste">{label}</p>
+      <p className="mt-1 font-mono text-xs text-granit">
+        {[type, KIND_LABEL[kind] ?? kind, IMPACT_LABEL[impact] ?? impact]
+          .filter(Boolean)
+          .join(' · ')}
+      </p>
+      {focus && (
+        <p className="mt-1 text-sm text-schiste">
+          <span className="text-granit">focus : </span>
+          {focus}
+        </p>
+      )}
+      {(startsOn || endsOn) && (
+        <p className="tabular mt-1 font-mono text-xs text-granit">
+          {startsOn ?? '?'}
+          {endsOn ? ` → ${endsOn}` : ''}
+        </p>
+      )}
+      {rrule && (
+        <p className="tabular mt-1 font-mono text-[10px] text-granit">{rrule}</p>
+      )}
+      {notes && <p className="mt-2 text-sm italic text-granit">{notes}</p>}
+    </>
+  )
+}
+
+function RaceBody({ payload }: { payload: Record<string, unknown> }) {
+  const name = (payload.name as string) ?? '—'
+  const raceDate = (payload.race_date as string) ?? ''
+  const priority = (payload.priority as string) ?? ''
+  const location = (payload.location as string | null) ?? null
+  const distanceM = (payload.distance_m as number | null) ?? null
+  const elevationM = (payload.elevation_gain_m as number | null) ?? null
+  const goalS = (payload.goal_time_s as number | null) ?? null
+  const notes = (payload.notes as string | null) ?? null
+  return (
+    <>
+      <div className="mt-2 flex items-baseline gap-2">
+        <span className="rounded-data border border-granit/35 px-1.5 py-0.5 font-mono text-[10px] uppercase text-granit">
+          {priority}
+        </span>
+        <p className="text-base font-medium text-schiste">{name}</p>
+      </div>
+      <p className="tabular mt-1 font-mono text-xs text-granit">
+        {raceDate}
+        {location ? ` · ${location}` : ''}
+      </p>
+      {(distanceM || elevationM || goalS) && (
+        <p className="tabular mt-1 font-mono text-xs text-granit">
+          {distanceM ? `${(distanceM / 1000).toFixed(1).replace('.', ',')} km` : ''}
+          {distanceM && (elevationM || goalS) ? ' · ' : ''}
+          {elevationM ? `${elevationM} m D+` : ''}
+          {(distanceM || elevationM) && goalS ? ' · ' : ''}
+          {goalS
+            ? `obj. ${Math.floor(goalS / 3600)}h${String(Math.floor((goalS % 3600) / 60)).padStart(2, '0')}`
+            : ''}
+        </p>
+      )}
+      {notes && <p className="mt-2 text-sm italic text-granit">{notes}</p>}
+    </>
+  )
+}
+
+function DebriefAxisBody({ payload }: { payload: Record<string, unknown> }) {
+  const axis = (payload.axis as string) ?? '—'
+  const race = (payload.debrief_race_name as string | null) ?? null
+  return (
+    <>
+      <p className="mt-2 text-base text-schiste">{axis}</p>
+      <p className="mt-1 font-mono text-xs text-granit">
+        À ajouter au débrief{race ? ` de ${race}` : ' courant'}
+      </p>
+    </>
   )
 }
 
