@@ -1,7 +1,12 @@
 import { NextRequest } from 'next/server'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { getActivityDetail, listActivityLaps } from '@/lib/strava/api'
 import {
+  getActivityDetail,
+  getActivityStreams,
+  listActivityLaps,
+} from '@/lib/strava/api'
+import {
+  enrichLapsFromStreams,
   extractHealth,
   transformActivity,
   transformLaps,
@@ -139,30 +144,8 @@ async function handleEvent(
   const activityId = written?.[0]?.id
   if (!activityId) return
 
-  // 2.b Laps : refetch a chaque webhook (activite creee ou updatee)
-  // pour capter les corrections cote Strava (edit distance, etc.).
-  try {
-    const token = await getValidAccessTokenForTenant(admin, tenantId)
-    const rawLaps = await listActivityLaps(token, event.object_id)
-    await admin.from('activity_laps').delete().eq('activity_id', activityId)
-    const lapRows = transformLaps(rawLaps, activityId).map((r) => ({
-      tenant_id: tenantId,
-      ...r,
-    }))
-    if (lapRows.length > 0) {
-      const { error: lErr } = await admin
-        .from('activity_laps')
-        .insert(lapRows)
-      if (lErr) console.warn(`strava webhook laps insert: ${lErr.message}`)
-    }
-  } catch (e) {
-    console.warn(
-      `strava webhook laps fetch failed activity=${event.object_id}: ${
-        e instanceof Error ? e.message : e
-      }`,
-    )
-  }
-
+  // Consentement fc_stockage courant. Determine avant le fetch laps/
+  // streams pour piloter l'ecriture des donnees sante (lap_health).
   const { data: consent } = await admin
     .from('consent_records')
     .select('granted')
@@ -172,6 +155,63 @@ async function handleEvent(
     .limit(1)
     .maybeSingle()
   const fcGranted = consent?.granted === true
+
+  // 2.b Laps + streams : refetch a chaque webhook. Les streams sont
+  // utilises pour calculer D- (donnee terrain, ecrite quoi qu'il
+  // arrive) et FC min/avg/max par lap (donnee sante, ecrite UNIQUEMENT
+  // si fcGranted).
+  try {
+    const token = await getValidAccessTokenForTenant(admin, tenantId)
+    const [rawLaps, streams] = await Promise.all([
+      listActivityLaps(token, event.object_id),
+      fcGranted
+        ? getActivityStreams(token, event.object_id, ['altitude', 'heartrate'])
+        : getActivityStreams(token, event.object_id, ['altitude']),
+    ])
+    const baseLapRows = transformLaps(rawLaps, activityId)
+    const { laps: enrichedLaps, health: lapHealthRows } = enrichLapsFromStreams(
+      rawLaps,
+      baseLapRows,
+      streams,
+      activityId,
+      fcGranted,
+    )
+    await admin.from('activity_laps').delete().eq('activity_id', activityId)
+    await admin
+      .from('activity_lap_health')
+      .delete()
+      .eq('activity_id', activityId)
+
+    if (enrichedLaps.length > 0) {
+      const rows = enrichedLaps.map((r) => ({ tenant_id: tenantId, ...r }))
+      const { error: lErr } = await admin.from('activity_laps').insert(rows)
+      if (lErr) console.warn(`strava webhook laps insert: ${lErr.message}`)
+    }
+    if (fcGranted && lapHealthRows.length > 0) {
+      const rows = lapHealthRows.map((r) => ({ tenant_id: tenantId, ...r }))
+      const { error: lhErr } = await admin
+        .from('activity_lap_health')
+        .insert(rows)
+      if (lhErr) {
+        console.warn(`strava webhook lap_health insert: ${lhErr.message}`)
+      } else {
+        await admin.from('health_access_logs').insert({
+          tenant_id: tenantId,
+          subject_table: 'activity_lap_health',
+          subject_id: activityId,
+          action: 'ecriture',
+          actor: 'system',
+          context: 'webhook Strava',
+        })
+      }
+    }
+  } catch (e) {
+    console.warn(
+      `strava webhook laps/streams fetch failed activity=${event.object_id}: ${
+        e instanceof Error ? e.message : e
+      }`,
+    )
+  }
 
   const health = extractHealth(detail, fcGranted)
   if (!health) return

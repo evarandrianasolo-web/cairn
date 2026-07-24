@@ -68,7 +68,11 @@ type LapDisplay = {
   moving_time_s: number
   avg_pace_s_per_km: number | null
   elevation_gain_m: number | null
+  elevation_loss_m: number | null
   is_manual: boolean
+  min_hr?: number | null
+  avg_hr?: number | null
+  max_hr?: number | null
 }
 
 type LinkedRace = {
@@ -138,7 +142,9 @@ export default async function ActivityDetailPage({
       : Promise.resolve({ data: null }),
     supabase
       .from('activity_laps')
-      .select('lap_index, distance_m, moving_time_s, avg_pace_s_per_km, elevation_gain_m, is_manual')
+      .select(
+        'lap_index, distance_m, moving_time_s, avg_pace_s_per_km, elevation_gain_m, elevation_loss_m, is_manual',
+      )
       .eq('activity_id', activity.id)
       .order('lap_index', { ascending: true }),
   ])
@@ -148,7 +154,23 @@ export default async function ActivityDetailPage({
   const allRaces = (allRacesRes.data ?? []) as RaceForMatch[]
   const existingDebriefId = (existingDebriefRes.data as { id: string } | null)?.id ?? null
   const hasNotes = (activity.user_notes ?? '').trim().length > 0
-  const laps = (lapsRes.data ?? []) as LapDisplay[]
+  const rawLaps = (lapsRes.data ?? []) as LapDisplay[]
+
+  // FC par lap : table sante separee, filtree par RLS. Si le
+  // consentement fc_stockage est OFF il n'y a rien a merger.
+  const { data: lapHealth } = await supabase
+    .from('activity_lap_health')
+    .select('lap_index, min_hr, avg_hr, max_hr')
+    .eq('activity_id', activity.id)
+  const hrByIndex = new Map<number, { min_hr: number | null; avg_hr: number | null; max_hr: number | null }>()
+  for (const h of lapHealth ?? []) {
+    hrByIndex.set(h.lap_index, { min_hr: h.min_hr, avg_hr: h.avg_hr, max_hr: h.max_hr })
+  }
+  const laps: LapDisplay[] = rawLaps.map((l) => {
+    const hr = hrByIndex.get(l.lap_index)
+    return hr ? { ...l, ...hr } : l
+  })
+  const hasLapHealth = hrByIndex.size > 0
   const sessionKind = classifySession(
     {
       sport_type: activity.sport_type,
@@ -264,7 +286,7 @@ export default async function ActivityDetailPage({
         )}
       </section>
 
-      {laps.length > 0 && <LapsSection laps={laps} />}
+      {laps.length > 0 && <LapsSection laps={laps} hasHealth={hasLapHealth} />}
 
       <section>
         <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
@@ -626,16 +648,19 @@ export default async function ActivityDetailPage({
  * fractionnee, ca permet de lire d'un coup d'oeil "j'ai tourne a
  * 3:50 sur mes 5 x 1 km".
  */
-function LapsSection({ laps }: { laps: LapDisplay[] }) {
+function LapsSection({
+  laps,
+  hasHealth,
+}: {
+  laps: LapDisplay[]
+  hasHealth: boolean
+}) {
   const isManual = laps[0]?.is_manual ?? false
   const paces = laps
     .map((l) => l.avg_pace_s_per_km ?? l.moving_time_s / (l.distance_m / 1000))
     .filter((p) => Number.isFinite(p) && p > 0)
   const sorted = [...paces].sort((a, b) => a - b)
   const median = sorted[Math.floor(sorted.length / 2)] ?? null
-  // Un lap est un "effort" si son allure est au moins 30 s plus
-  // rapide que la mediane -- typique d'un bloc VMA/seuil au milieu
-  // d'une seance qui contient recup.
   const effortThreshold = median != null ? median - 30 : null
 
   return (
@@ -646,6 +671,7 @@ function LapsSection({ laps }: { laps: LapDisplay[] }) {
         </h2>
         <span className="font-mono text-[10px] uppercase text-granit">
           {isManual ? 'manuels' : 'auto-km'}
+          {hasHealth ? ' · avec FC' : ''}
         </span>
       </div>
       <ul className="mt-3 divide-y divide-brume rounded-data border border-brume bg-craie">
@@ -655,31 +681,52 @@ function LapsSection({ laps }: { laps: LapDisplay[] }) {
             lap.moving_time_s / (lap.distance_m / 1000)
           const isEffort =
             effortThreshold != null && pace <= effortThreshold
+          const dPlus = lap.elevation_gain_m ?? 0
+          const dMinus = lap.elevation_loss_m ?? 0
           return (
             <li
               key={lap.lap_index}
               className={
-                'grid grid-cols-[2rem_1fr_1fr_1fr] items-baseline gap-2 px-3 py-2 text-sm ' +
-                (isEffort ? 'bg-brume/40' : '')
+                'px-3 py-2 text-sm ' + (isEffort ? 'bg-brume/40' : '')
               }
             >
-              <span className="tabular font-mono text-[10px] text-granit">
-                #{lap.lap_index}
-              </span>
-              <span className="tabular font-mono text-xs text-schiste">
-                {(lap.distance_m / 1000).toFixed(2)} km
-              </span>
-              <span className="tabular font-mono text-xs text-granit">
-                {formatDuree(lap.moving_time_s)}
-              </span>
-              <span
-                className={
-                  'tabular font-mono text-xs ' +
-                  (isEffort ? 'font-semibold text-schiste' : 'text-schiste')
-                }
-              >
-                {formatPaceFromS(pace)}
-              </span>
+              <div className="grid grid-cols-[2rem_1fr_1fr_1fr] items-baseline gap-2">
+                <span className="tabular font-mono text-[10px] text-granit">
+                  #{lap.lap_index}
+                </span>
+                <span className="tabular font-mono text-xs text-schiste">
+                  {(lap.distance_m / 1000).toFixed(2)} km
+                </span>
+                <span className="tabular font-mono text-xs text-granit">
+                  {formatDuree(lap.moving_time_s)}
+                </span>
+                <span
+                  className={
+                    'tabular font-mono text-xs ' +
+                    (isEffort ? 'font-semibold text-schiste' : 'text-schiste')
+                  }
+                >
+                  {formatPaceFromS(pace)}
+                </span>
+              </div>
+              {(dPlus > 0 || dMinus > 0 || lap.avg_hr != null) && (
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 pl-8 font-mono text-[10px] text-granit">
+                  {(dPlus > 0 || dMinus > 0) && (
+                    <span className="tabular">
+                      {dPlus > 0 ? `+${dPlus} m` : ''}
+                      {dPlus > 0 && dMinus > 0 ? ' · ' : ''}
+                      {dMinus > 0 ? `−${dMinus} m` : ''}
+                    </span>
+                  )}
+                  {lap.avg_hr != null && (
+                    <span className="tabular">
+                      FC moy {lap.avg_hr}
+                      {lap.max_hr != null ? ` · max ${lap.max_hr}` : ''}
+                      {lap.min_hr != null ? ` · min ${lap.min_hr}` : ''}
+                    </span>
+                  )}
+                </div>
+              )}
             </li>
           )
         })}

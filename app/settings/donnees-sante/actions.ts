@@ -55,9 +55,30 @@ export async function revokeAndPurgeFc(): Promise<void> {
     await supabase.from('health_access_logs').insert(logRows)
   }
 
+  // Idem pour la FC par lap : purge stricte + log par activite touchee.
+  const { data: purgedLap } = await supabase
+    .from('activity_lap_health')
+    .delete()
+    .not('activity_id', 'is', null)
+    .select('activity_id')
+  const uniqueLapActivities = Array.from(
+    new Set((purgedLap ?? []).map((r) => r.activity_id)),
+  )
+  if (uniqueLapActivities.length > 0) {
+    const logRows = uniqueLapActivities.map((activityId) => ({
+      tenant_id: user.id,
+      subject_table: 'activity_lap_health',
+      subject_id: activityId,
+      action: 'suppression' as const,
+      actor: 'system' as const,
+      context: 'retrait consentement fc_stockage',
+    }))
+    await supabase.from('health_access_logs').insert(logRows)
+  }
+
   revalidatePath('/settings/donnees-sante')
   redirect(
-    `/settings/donnees-sante?revoked=1&purged=${rows.length}`,
+    `/settings/donnees-sante?revoked=1&purged=${rows.length + (purgedLap?.length ?? 0)}`,
   )
 }
 

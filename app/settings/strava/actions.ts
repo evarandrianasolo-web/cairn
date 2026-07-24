@@ -9,8 +9,13 @@ import {
   type ConsentScope,
 } from '@/lib/consent/policy'
 import { getValidAccessToken } from '@/lib/strava/tokens'
-import { listActivities, listActivityLaps } from '@/lib/strava/api'
 import {
+  getActivityStreams,
+  listActivities,
+  listActivityLaps,
+} from '@/lib/strava/api'
+import {
+  enrichLapsFromStreams,
   extractHealth,
   transformActivity,
   transformLaps,
@@ -174,26 +179,50 @@ export async function backfillRecentLaps() {
     redirect('/settings/strava?laps_backfilled=0')
   }
 
-  // On saute celles qui ont deja des laps -- economie d'API.
-  const ids = acts.map((a) => a.id)
-  const { data: existing } = await supabase
-    .from('activity_laps')
-    .select('activity_id')
-    .in('activity_id', ids)
-  const already = new Set((existing ?? []).map((r) => r.activity_id))
-  const todo = acts.filter((a) => !already.has(a.id)).slice(0, 40)
+  // On refetch toujours : ca permet de recuperer D- et FC pour les
+  // activites deja ingerees avant que ces colonnes existent. Le cout
+  // reste borne par la limite de 40 activites par appel.
+  const todo = acts.slice(0, 40)
 
   const accessToken = await getValidAccessToken(supabase)
+  const fcGranted = await currentFcConsent(supabase)
   let processed = 0
   for (const a of todo) {
     try {
-      const raws = await listActivityLaps(accessToken, a.strava_activity_id)
-      const rows = transformLaps(raws, a.id).map((r) => ({
-        tenant_id: user.id,
-        ...r,
-      }))
-      if (rows.length > 0) {
+      const [raws, streams] = await Promise.all([
+        listActivityLaps(accessToken, a.strava_activity_id),
+        fcGranted
+          ? getActivityStreams(accessToken, a.strava_activity_id, ['altitude', 'heartrate'])
+          : getActivityStreams(accessToken, a.strava_activity_id, ['altitude']),
+      ])
+      const baseLapRows = transformLaps(raws, a.id)
+      const { laps: enrichedLaps, health: lapHealthRows } = enrichLapsFromStreams(
+        raws,
+        baseLapRows,
+        streams,
+        a.id,
+        fcGranted,
+      )
+      await supabase.from('activity_laps').delete().eq('activity_id', a.id)
+      await supabase
+        .from('activity_lap_health')
+        .delete()
+        .eq('activity_id', a.id)
+      if (enrichedLaps.length > 0) {
+        const rows = enrichedLaps.map((r) => ({ tenant_id: user.id, ...r }))
         await supabase.from('activity_laps').insert(rows)
+      }
+      if (fcGranted && lapHealthRows.length > 0) {
+        const rows = lapHealthRows.map((r) => ({ tenant_id: user.id, ...r }))
+        await supabase.from('activity_lap_health').insert(rows)
+        await supabase.from('health_access_logs').insert({
+          tenant_id: user.id,
+          subject_table: 'activity_lap_health',
+          subject_id: a.id,
+          action: 'ecriture',
+          actor: 'system',
+          context: 'backfill laps',
+        })
       }
       processed += 1
     } catch (e) {
