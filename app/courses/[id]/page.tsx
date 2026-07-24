@@ -250,7 +250,7 @@ export default async function CourseFichePage({
           <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
             Estimation
           </h2>
-          <p className="mt-2 text-xs italic text-granit">
+          <p className="mt-2 break-words text-xs italic text-granit">
             {estimateSourceLabel(estimate, vSpeed?.medianMPerHour ?? null)}{' '}
             Estimation indicative, à confronter à tes sensations le jour J.
           </p>
@@ -463,7 +463,8 @@ function estimateSourceLabel(
     const dLabel = r.elevation_gain_m > 0 ? ` / ${r.elevation_gain_m} m D+` : ''
     const kind = r.kind === 'race' ? 'course' : 'sortie'
     const when = r.date ? ` du ${formatShortDate(r.date)}` : ''
-    const name = r.label ? ` « ${r.label} »` : ''
+    const shortLabel = r.label && r.label.length > 40 ? r.label.slice(0, 38).trim() + '…' : r.label
+    const name = shortLabel ? ` « ${shortLabel} »` : ''
     return `Extrapolée depuis ta ${kind}${name}${when} (${kmLabel} km${dLabel} en ${formatDuree(r.time_s)}) via Riegel effort-km.`
   }
   if (est.source === 'refs+vspeed') {
