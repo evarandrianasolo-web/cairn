@@ -17,11 +17,33 @@ import {
   formatPace,
   formatVerticalSpeed,
   inferReferenceTimes,
+  type LapRefLite,
   type SimilarEffort,
 } from '@/lib/paces'
 
 const LONG_SECS = 90 * 60
 const DAY_MS = 24 * 60 * 60 * 1000
+
+type LapRow = {
+  activity_id: string
+  distance_m: number
+  moving_time_s: number
+  is_manual: boolean
+  activity:
+    | {
+        name: string | null
+        started_at: string | null
+        distance_m: number | null
+        elevation_gain_m: number | null
+      }
+    | {
+        name: string | null
+        started_at: string | null
+        distance_m: number | null
+        elevation_gain_m: number | null
+      }[]
+    | null
+}
 
 type FuelingLog = {
   activity_id: string
@@ -118,6 +140,17 @@ export default async function CourseFichePage({
       .limit(20),
   ])
 
+  // Laps des activites recentes (90 j). Join a activities pour
+  // recuperer nom + date + D+/km -- necessaire pour l'inference et
+  // pour rejeter les laps auto sur trail vallonne.
+  const { data: rawLaps } = await supabase
+    .from('activity_laps')
+    .select(
+      'activity_id, distance_m, moving_time_s, is_manual, activity:activities!inner(name, started_at, distance_m, elevation_gain_m)',
+    )
+    .gte('activity.started_at', since90d)
+    .gte('distance_m', 800)
+
   const isUpcoming = !race.status || race.status !== 'terminee'
   const j = daysUntil(race.race_date)
   const goalS = race.goal_time_s ?? null
@@ -145,6 +178,21 @@ export default async function CourseFichePage({
       started_at: a.started_at ?? null,
       name: a.name ?? null,
     })),
+    ((rawLaps ?? []) as unknown as LapRow[]).map((l) => {
+      const act = Array.isArray(l.activity) ? l.activity[0] : l.activity
+      const parentD = act?.elevation_gain_m ?? 0
+      const parentKm = act?.distance_m ? act.distance_m / 1000 : 0
+      const parentDplusPerKm = parentKm > 0 ? parentD / parentKm : 0
+      return {
+        activity_id: l.activity_id,
+        activity_name: act?.name ?? null,
+        activity_started_at: act?.started_at ?? null,
+        distance_m: l.distance_m,
+        moving_time_s: l.moving_time_s,
+        is_manual: l.is_manual,
+        parent_dplus_per_km: parentDplusPerKm,
+      } satisfies LapRefLite
+    }),
     new Date(),
   )
   const vSpeed = computeVerticalSpeed(recentActs90 ?? [])

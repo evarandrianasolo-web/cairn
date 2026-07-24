@@ -195,6 +195,7 @@ export default async function DashboardPage() {
       started_at: a.started_at,
       name: (a as { name?: string | null }).name ?? null,
     })),
+    [],
     new Date(),
   )
   const paces = derivePaces(refs)

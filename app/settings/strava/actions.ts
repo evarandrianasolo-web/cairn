@@ -9,8 +9,12 @@ import {
   type ConsentScope,
 } from '@/lib/consent/policy'
 import { getValidAccessToken } from '@/lib/strava/tokens'
-import { listActivities } from '@/lib/strava/api'
-import { extractHealth, transformActivity } from '@/lib/strava/ingest'
+import { listActivities, listActivityLaps } from '@/lib/strava/api'
+import {
+  extractHealth,
+  transformActivity,
+  transformLaps,
+} from '@/lib/strava/ingest'
 
 type SupabaseServer = Awaited<ReturnType<typeof createServerSupabaseClient>>
 
@@ -144,6 +148,65 @@ export async function refreshStrava() {
   revalidatePath('/settings/strava')
   revalidatePath('/activities')
   redirect(`/settings/strava?imported=${imported}`)
+}
+
+/**
+ * Backfill des laps pour les activites recentes qui n'en ont pas
+ * encore. Limite fort pour respecter le rate limit Strava (100 req/
+ * 15 min, 1000/j). On ne traite que les 90 derniers jours et max
+ * 40 activites par appel.
+ */
+export async function backfillRecentLaps() {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const since = new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString()
+  const { data: acts, error } = await supabase
+    .from('activities')
+    .select('id, strava_activity_id')
+    .gte('started_at', since)
+    .not('strava_activity_id', 'is', null)
+    .order('started_at', { ascending: false })
+    .limit(60)
+  if (error) throw new Error(`Backfill laps read: ${error.message}`)
+  if (!acts || acts.length === 0) {
+    redirect('/settings/strava?laps_backfilled=0')
+  }
+
+  // On saute celles qui ont deja des laps -- economie d'API.
+  const ids = acts.map((a) => a.id)
+  const { data: existing } = await supabase
+    .from('activity_laps')
+    .select('activity_id')
+    .in('activity_id', ids)
+  const already = new Set((existing ?? []).map((r) => r.activity_id))
+  const todo = acts.filter((a) => !already.has(a.id)).slice(0, 40)
+
+  const accessToken = await getValidAccessToken(supabase)
+  let processed = 0
+  for (const a of todo) {
+    try {
+      const raws = await listActivityLaps(accessToken, a.strava_activity_id)
+      const rows = transformLaps(raws, a.id).map((r) => ({
+        tenant_id: user.id,
+        ...r,
+      }))
+      if (rows.length > 0) {
+        await supabase.from('activity_laps').insert(rows)
+      }
+      processed += 1
+    } catch (e) {
+      // Une activite en erreur ne doit pas bloquer les autres.
+      console.warn(
+        `backfill laps activity=${a.strava_activity_id}: ${e instanceof Error ? e.message : e}`,
+      )
+    }
+  }
+
+  revalidatePath('/settings/strava')
+  revalidatePath('/activities')
+  redirect(`/settings/strava?laps_backfilled=${processed}`)
 }
 
 export async function disconnectStrava() {

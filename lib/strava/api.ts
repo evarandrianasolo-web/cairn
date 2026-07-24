@@ -52,3 +52,33 @@ export async function getActivityDetail(
   if (!res.ok) throw new Error(`Strava activity detail: ${res.status} ${await res.text()}`)
   return res.json()
 }
+
+/**
+ * Un lap tel que renvoye par l'endpoint `/activities/{id}/laps` de
+ * Strava. Ce sont les splits enregistres par la montre : bouton lap
+ * manuel ou auto-lap kilometrique selon les reglages. Aucun champ FC
+ * n'est extrait.
+ */
+export type StravaLap = {
+  id: number
+  lap_index: number
+  distance: number
+  moving_time: number
+  elapsed_time: number
+  average_speed: number | null
+  total_elevation_gain: number | null
+}
+
+export async function listActivityLaps(
+  accessToken: string,
+  stravaActivityId: number,
+): Promise<StravaLap[]> {
+  const url = `${STRAVA_API_BASE}/activities/${stravaActivityId}/laps`
+  const res = await fetch(url, {
+    headers: { authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+  })
+  if (res.status === 404) return []
+  if (!res.ok) throw new Error(`Strava laps: ${res.status} ${await res.text()}`)
+  return res.json()
+}

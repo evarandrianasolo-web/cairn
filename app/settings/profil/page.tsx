@@ -70,6 +70,7 @@ export default async function ProfilPage({
       started_at: (a as { started_at?: string | null }).started_at ?? null,
       name: (a as { name?: string | null }).name ?? null,
     })),
+    [],
     new Date(),
   )
   const paces = derivePaces(refs)

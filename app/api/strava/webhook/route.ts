@@ -1,7 +1,11 @@
 import { NextRequest } from 'next/server'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { getActivityDetail } from '@/lib/strava/api'
-import { extractHealth, transformActivity } from '@/lib/strava/ingest'
+import { getActivityDetail, listActivityLaps } from '@/lib/strava/api'
+import {
+  extractHealth,
+  transformActivity,
+  transformLaps,
+} from '@/lib/strava/ingest'
 import { getValidAccessTokenForTenant } from '@/lib/strava/tokens'
 
 /**
@@ -134,6 +138,30 @@ async function handleEvent(
   // 3. FC : ecrire uniquement si consentement fc_stockage courant = true.
   const activityId = written?.[0]?.id
   if (!activityId) return
+
+  // 2.b Laps : refetch a chaque webhook (activite creee ou updatee)
+  // pour capter les corrections cote Strava (edit distance, etc.).
+  try {
+    const token = await getValidAccessTokenForTenant(admin, tenantId)
+    const rawLaps = await listActivityLaps(token, event.object_id)
+    await admin.from('activity_laps').delete().eq('activity_id', activityId)
+    const lapRows = transformLaps(rawLaps, activityId).map((r) => ({
+      tenant_id: tenantId,
+      ...r,
+    }))
+    if (lapRows.length > 0) {
+      const { error: lErr } = await admin
+        .from('activity_laps')
+        .insert(lapRows)
+      if (lErr) console.warn(`strava webhook laps insert: ${lErr.message}`)
+    }
+  } catch (e) {
+    console.warn(
+      `strava webhook laps fetch failed activity=${event.object_id}: ${
+        e instanceof Error ? e.message : e
+      }`,
+    )
+  }
 
   const { data: consent } = await admin
     .from('consent_records')

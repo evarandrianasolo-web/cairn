@@ -3,12 +3,12 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { ScreenTitle } from '@/components/screen-title'
 import { formatDateCourte } from '@/lib/format'
 import { ConsentForm } from './consent-form'
-import { disconnectStrava, refreshStrava } from './actions'
+import { backfillRecentLaps, disconnectStrava, refreshStrava } from './actions'
 
 export default async function StravaSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ erreur?: string; connecte?: string; imported?: string; consent?: string }>
+  searchParams: Promise<{ erreur?: string; connecte?: string; imported?: string; consent?: string; laps_backfilled?: string }>
 }) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -73,13 +73,26 @@ export default async function StravaSettingsPage({
               <span className="tabular">{params.imported}</span> activités traitées.
             </p>
           )}
-          <div className="flex gap-3">
+          {params.laps_backfilled != null && (
+            <p className="rounded-data bg-craie p-3 text-sm text-schiste">
+              Laps récupérés pour <span className="tabular">{params.laps_backfilled}</span> activités.
+            </p>
+          )}
+          <div className="flex flex-wrap gap-3">
             <form action={refreshStrava}>
               <button
                 type="submit"
                 className="rounded-data bg-schiste px-3 py-2 text-sm text-craie"
               >
                 Rafraîchir depuis Strava
+              </button>
+            </form>
+            <form action={backfillRecentLaps}>
+              <button
+                type="submit"
+                className="rounded-data border border-granit px-3 py-2 text-sm text-schiste"
+              >
+                Récupérer les laps (90 j)
               </button>
             </form>
             <form action={disconnectStrava}>
@@ -91,6 +104,11 @@ export default async function StravaSettingsPage({
               </button>
             </form>
           </div>
+          <p className="text-xs italic text-granit">
+            Les laps servent à extraire les allures réelles de tes fractionnés
+            (VMA, seuil) — sans le biais des récupérations. Le bouton respecte
+            les limites de l&apos;API Strava : jusqu&apos;à 40 activités par appel.
+          </p>
         </div>
       )}
     </main>

@@ -49,6 +49,15 @@ const ISSUE_LABELS = {
 
 const LONG_SECS = 90 * 60
 
+type LapDisplay = {
+  lap_index: number
+  distance_m: number
+  moving_time_s: number
+  avg_pace_s_per_km: number | null
+  elevation_gain_m: number | null
+  is_manual: boolean
+}
+
 type LinkedRace = {
   id: string
   name: string
@@ -85,7 +94,7 @@ export default async function ActivityDetailPage({
 
   if (!activity) redirect('/activities')
 
-  const [fuelingRes, linkedRaceRes, allRacesRes, existingDebriefRes] = await Promise.all([
+  const [fuelingRes, linkedRaceRes, allRacesRes, existingDebriefRes, lapsRes] = await Promise.all([
     supabase
       .from('fueling_logs')
       .select(
@@ -114,6 +123,11 @@ export default async function ActivityDetailPage({
           .eq('race_id', activity.race_id)
           .maybeSingle()
       : Promise.resolve({ data: null }),
+    supabase
+      .from('activity_laps')
+      .select('lap_index, distance_m, moving_time_s, avg_pace_s_per_km, elevation_gain_m, is_manual')
+      .eq('activity_id', activity.id)
+      .order('lap_index', { ascending: true }),
   ])
 
   const fueling = fuelingRes.data
@@ -121,6 +135,7 @@ export default async function ActivityDetailPage({
   const allRaces = (allRacesRes.data ?? []) as RaceForMatch[]
   const existingDebriefId = (existingDebriefRes.data as { id: string } | null)?.id ?? null
   const hasNotes = (activity.user_notes ?? '').trim().length > 0
+  const laps = (lapsRes.data ?? []) as LapDisplay[]
 
   const isLongEnough =
     activity.moving_time_s != null && activity.moving_time_s >= LONG_SECS
@@ -213,6 +228,8 @@ export default async function ActivityDetailPage({
           </form>
         )}
       </section>
+
+      {laps.length > 0 && <LapsSection laps={laps} />}
 
       <section>
         <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
@@ -565,6 +582,89 @@ export default async function ActivityDetailPage({
       )}
     </main>
   )
+}
+
+/**
+ * Table des laps d'une seance : chaque lap affiche distance, temps,
+ * allure. On surligne les blocs les plus rapides (par rapport a la
+ * mediane des paces) et on badge manuel vs auto. Sur une seance
+ * fractionnee, ca permet de lire d'un coup d'oeil "j'ai tourne a
+ * 3:50 sur mes 5 x 1 km".
+ */
+function LapsSection({ laps }: { laps: LapDisplay[] }) {
+  const isManual = laps[0]?.is_manual ?? false
+  const paces = laps
+    .map((l) => l.avg_pace_s_per_km ?? l.moving_time_s / (l.distance_m / 1000))
+    .filter((p) => Number.isFinite(p) && p > 0)
+  const sorted = [...paces].sort((a, b) => a - b)
+  const median = sorted[Math.floor(sorted.length / 2)] ?? null
+  // Un lap est un "effort" si son allure est au moins 30 s plus
+  // rapide que la mediane -- typique d'un bloc VMA/seuil au milieu
+  // d'une seance qui contient recup.
+  const effortThreshold = median != null ? median - 30 : null
+
+  return (
+    <section>
+      <div className="flex items-baseline justify-between">
+        <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
+          Laps ({laps.length})
+        </h2>
+        <span className="font-mono text-[10px] uppercase text-granit">
+          {isManual ? 'manuels' : 'auto-km'}
+        </span>
+      </div>
+      <ul className="mt-3 divide-y divide-brume rounded-data border border-brume bg-craie">
+        {laps.map((lap) => {
+          const pace =
+            lap.avg_pace_s_per_km ??
+            lap.moving_time_s / (lap.distance_m / 1000)
+          const isEffort =
+            effortThreshold != null && pace <= effortThreshold
+          return (
+            <li
+              key={lap.lap_index}
+              className={
+                'grid grid-cols-[2rem_1fr_1fr_1fr] items-baseline gap-2 px-3 py-2 text-sm ' +
+                (isEffort ? 'bg-brume/40' : '')
+              }
+            >
+              <span className="tabular font-mono text-[10px] text-granit">
+                #{lap.lap_index}
+              </span>
+              <span className="tabular font-mono text-xs text-schiste">
+                {(lap.distance_m / 1000).toFixed(2)} km
+              </span>
+              <span className="tabular font-mono text-xs text-granit">
+                {formatDuree(lap.moving_time_s)}
+              </span>
+              <span
+                className={
+                  'tabular font-mono text-xs ' +
+                  (isEffort ? 'font-semibold text-schiste' : 'text-schiste')
+                }
+              >
+                {formatPaceFromS(pace)}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+      {isManual && (
+        <p className="mt-2 text-[11px] italic text-granit">
+          Laps pressés au bouton pendant la séance — les blocs surlignés sont
+          plus rapides que la médiane et servent de référence pour l&apos;estimation
+          course.
+        </p>
+      )}
+    </section>
+  )
+}
+
+function formatPaceFromS(sPerKm: number): string {
+  if (!Number.isFinite(sPerKm) || sPerKm <= 0) return '—'
+  const m = Math.floor(sPerKm / 60)
+  const s = Math.round(sPerKm % 60)
+  return `${m}:${s.toString().padStart(2, '0')}/km`
 }
 
 function Stat({

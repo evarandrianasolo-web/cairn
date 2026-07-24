@@ -225,6 +225,21 @@ export type ActivityRefLite = {
   name: string | null
 }
 
+export type LapRefLite = {
+  activity_id: string
+  activity_name: string | null
+  activity_started_at: string | null
+  distance_m: number
+  moving_time_s: number
+  is_manual: boolean
+  /**
+   * D+/km de l'activite parente. Sert a rejeter les laps auto d'une
+   * grosse course trail : un 1 km en 2:45 pris en descente sur une
+   * cote roannaise n'est pas une reference d'allure horizontale.
+   */
+  parent_dplus_per_km: number
+}
+
 /**
  * Enrichit les refs saisies avec :
  *   - les meilleurs temps de courses terminees (route ou trail plat,
@@ -250,6 +265,7 @@ export function inferReferenceTimes(
   saved: ReferenceTimes,
   races: RaceLite[],
   activities: ActivityRefLite[],
+  laps: LapRefLite[] = [],
   now: Date = new Date(2000, 0, 1),
 ): {
   refs: ReferenceTimes
@@ -271,6 +287,23 @@ export function inferReferenceTimes(
       (r.elevation_gain_m ?? 0) < 300 &&
       (!r.race_date || new Date(r.race_date) > cutoffRace),
   )
+
+  // Laps eligibles : >= 800 m, pace realiste [3:20 ; 6:30]/km, activite
+  // < 90 j. Un lap manuel a la priorite sur un auto-lap kilometrique
+  // meme longueur (le manuel isole un effort dedie, le kilometrique
+  // fait le kilometre au fil de la seance donc lisse l'effort).
+  // Les laps AUTO sur une activite vallonnee (D+/km > 15) sont
+  // rejetes : leur vitesse depend trop du profil terrain, un km en
+  // descente donne une allure horizontale faussee.
+  const eligibleLaps = laps.filter((l) => {
+    if (l.distance_m < 800 || l.moving_time_s <= 0) return false
+    const pace = l.moving_time_s / (l.distance_m / 1000)
+    if (pace < 200 || pace >= 390) return false
+    if (l.activity_started_at && new Date(l.activity_started_at) < cutoffAct)
+      return false
+    if (!l.is_manual && l.parent_dplus_per_km > 15) return false
+    return true
+  })
 
   // Activites "effort route" recentes : distance 5-25 km, D+/km bas,
   // duree >= 30 min, allure moyenne dans [3:20 ; 6:00]/km. Le pace min
@@ -314,6 +347,42 @@ export function inferReferenceTimes(
 
     let bestActEquiv: number | null = null
     let bestActSource: InferenceSource | null = null
+
+    // Laps en premier : les manuels priment sur les auto au meme
+    // score en cas d'ex-aequo. Riegel classique s'applique.
+    for (const l of eligibleLaps) {
+      const dKm = l.distance_m / 1000
+      const ratio = dKm / target.km
+      // Un lap peut etre bien plus court que la distance cible (ex :
+      // 1 km lap pour extrapoler un 10 km) -- tolerance large 0.1-2.
+      if (ratio < 0.1 || ratio > 2) continue
+      const equivalent = Math.round(
+        l.moving_time_s * Math.pow(target.km / dKm, RIEGEL_EXP),
+      )
+      const isBetter =
+        bestActEquiv == null ||
+        equivalent < bestActEquiv ||
+        // Egalite : le manuel prime
+        (equivalent === bestActEquiv && l.is_manual)
+      if (isBetter) {
+        bestActEquiv = equivalent
+        bestActSource = {
+          kind: 'activity',
+          label: l.activity_name
+            ? `${l.activity_name} — lap ${(dKm).toFixed(1)} km ${l.is_manual ? '(manuel)' : '(auto)'}`
+            : `lap ${dKm.toFixed(1)} km`,
+          date: l.activity_started_at
+            ? l.activity_started_at.slice(0, 10)
+            : null,
+          equivalentS: equivalent,
+        }
+      }
+      if (best == null || equivalent < best) {
+        best = equivalent
+        inferred[target.key] = true
+      }
+    }
+
     for (const a of eligibleActs) {
       const dKm = (a.distance_m as number) / 1000
       const ratio = dKm / target.km
@@ -345,13 +414,14 @@ export function inferReferenceTimes(
   return { refs: result, inferred, bestFromActivity }
 }
 
-/** @deprecated use inferReferenceTimes(saved, races, [], now). */
+/** @deprecated use inferReferenceTimes(saved, races, [], [], now). */
 export function inferReferenceTimesFromRaces(
   saved: ReferenceTimes,
   races: RaceLite[],
   now: Date = new Date(2000, 0, 1),
 ): { refs: ReferenceTimes; inferred: Partial<Record<keyof ReferenceTimes, true>> } {
-  return inferReferenceTimes(saved, races, [], now)
+  const { refs, inferred } = inferReferenceTimes(saved, races, [], [], now)
+  return { refs, inferred }
 }
 
 // ------------------ Estimation temps course ------------------
