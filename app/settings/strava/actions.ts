@@ -66,9 +66,19 @@ async function runInitialImport(
         .filter((r): r is NonNullable<typeof r> => r !== null)
 
       if (healthRows.length > 0) {
+        // activity_health n'a pas de policy UPDATE (regle produit
+        // "creation ou suppression, jamais modification"). Refresh
+        // impose donc DELETE puis INSERT.
+        const activityIds = healthRows.map((r) => r.activity_id)
+        const { error: dErr } = await supabase
+          .from('activity_health')
+          .delete()
+          .in('activity_id', activityIds)
+        if (dErr) throw new Error(`Purge santé pre-import: ${dErr.message}`)
+
         const { error: hErr } = await supabase
           .from('activity_health')
-          .upsert(healthRows, { onConflict: 'activity_id' })
+          .insert(healthRows)
         if (hErr) throw new Error(`Import santé: ${hErr.message}`)
 
         const logRows = healthRows.map((r) => ({
