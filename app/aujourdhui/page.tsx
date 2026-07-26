@@ -50,8 +50,19 @@ type PlannedToday = {
   isClub: boolean
 }
 
+type PlannedUpcoming = {
+  scheduledOn: string
+  sessionType: string
+  intent: string | null
+  durationS: number | null
+  distanceM: number | null
+  elevationM: number | null
+  isClub: boolean
+}
+
 type MainCard =
   | { kind: 'planned-today'; planned: PlannedToday }
+  | { kind: 'rest-day'; next: PlannedUpcoming | null }
   | { kind: 'debrief-race'; activityId: string; raceName: string }
   | { kind: 'log-fueling'; activityId: string; activityName: string; durationS: number }
   | { kind: 'link-race'; activityId: string; activityName: string; raceName: string }
@@ -98,7 +109,7 @@ export default async function AujourdhuiPage() {
   return (
     <main className="mx-auto flex min-h-[calc(100vh-52px)] w-full max-w-[390px] flex-col bg-brume px-[26px] py-8">
       <MetaLine race={view.nextRaceA} />
-      <MainCardView card={view.card} />
+      <MainCardView card={view.card} upcoming={view.upcoming} />
       <div className="flex-1" />
       <WeekSummaryView summary={view.week} />
     </main>
@@ -162,21 +173,22 @@ async function buildTodayView(supabase: SupabaseClient) {
           `and(recurrence_rule.is.null,starts_on.lte.${new Date(now.getTime() + 6 * DAY_MS).toISOString().slice(0, 10)},or(ends_on.is.null,ends_on.gte.${todayIso}))`,
       )
       .limit(5),
-    // Seance du jour si le plan contient quelque chose et si elle n'est
-    // pas deja realisee. Une seule ligne attendue -- s'il y en a plus,
-    // on prend celle qui n'est pas encore accomplie.
+    // Seances du plan pour la fenetre [aujourd'hui ; aujourd'hui+7j].
+    // Sert autant a trouver la seance du jour qu'a lister les prochaines
+    // -- evite un aller-retour /planning pour savoir ce qui arrive.
     supabase
       .from('planned_sessions')
       .select(
-        'session_type, intent, target_duration_s, target_distance_m, target_elevation_m, is_club, status, matched_activity_id',
+        'scheduled_on, session_type, intent, target_duration_s, target_distance_m, target_elevation_m, is_club, status, matched_activity_id',
       )
-      .eq('scheduled_on', todayIso)
-      .order('created_at', { ascending: false })
-      .limit(3),
+      .gte('scheduled_on', todayIso)
+      .lte('scheduled_on', new Date(now.getTime() + 7 * DAY_MS).toISOString().slice(0, 10))
+      .order('scheduled_on', { ascending: true }),
   ])
 
   const recentActivities = (recentActivitiesRes.data ?? []) as RecentActivity[]
-  const plannedTodayRaw = (plannedTodayRes.data ?? []) as {
+  const plannedRaw = (plannedTodayRes.data ?? []) as {
+    scheduled_on: string
     session_type: string
     intent: string | null
     target_duration_s: number | null
@@ -186,10 +198,22 @@ async function buildTodayView(supabase: SupabaseClient) {
     status: string
     matched_activity_id: string | null
   }[]
-  const plannedToday =
-    plannedTodayRaw.find(
-      (p) => p.status !== 'realisee' && p.matched_activity_id == null,
-    ) ?? null
+  const openSessions = plannedRaw.filter(
+    (p) => p.status !== 'realisee' && p.matched_activity_id == null,
+  )
+  const plannedToday = openSessions.find((p) => p.scheduled_on === todayIso) ?? null
+  const upcoming: PlannedUpcoming[] = openSessions
+    .filter((p) => p.scheduled_on > todayIso)
+    .slice(0, 4)
+    .map((p) => ({
+      scheduledOn: p.scheduled_on,
+      sessionType: p.session_type,
+      intent: p.intent,
+      durationS: p.target_duration_s,
+      distanceM: p.target_distance_m,
+      elevationM: p.target_elevation_m,
+      isClub: p.is_club,
+    }))
   const allRaces = (racesRes.data ?? []) as RaceForMatch[]
   const nextRaceA = nextARes.data as NextRace
   const nextSecondary = nextSecondaryRes.data as
@@ -201,6 +225,7 @@ async function buildTodayView(supabase: SupabaseClient) {
     recentActivities,
     allRaces,
     plannedToday,
+    upcoming,
   )
 
   // Charge : semaine courante vs moyenne des 3 semaines precedentes.
@@ -229,7 +254,7 @@ async function buildTodayView(supabase: SupabaseClient) {
     nextSecondaryRace: nextSecondary,
   }
 
-  return { nextRaceA, card, week }
+  return { nextRaceA, card, week, upcoming }
 }
 
 type RecentActivity = NonNullable<LatestActivity> & {
@@ -248,6 +273,7 @@ async function pickMainCard(
     target_elevation_m: number | null
     is_club: boolean
   } | null,
+  upcoming: PlannedUpcoming[],
 ): Promise<MainCard> {
   // 0. La seance du jour du plan prime sur tout : c'est le motif meme
   //    de la venue d'Eva sur cet ecran.
@@ -263,6 +289,12 @@ async function pickMainCard(
         isClub: plannedToday.is_club,
       },
     }
+  }
+  // 0.b Pas de seance aujourd'hui MAIS le plan continue -- jour de repos
+  //     ou creneau libre. Affiche la prochaine seance pour eviter le
+  //     round-trip vers /planning.
+  if (upcoming.length > 0) {
+    return { kind: 'rest-day', next: upcoming[0] }
   }
   if (recent.length === 0) return { kind: 'nothing-recent' }
 
@@ -359,7 +391,52 @@ const SESSION_TYPE_TITLE: Record<string, string> = {
   course: 'COURSE',
 }
 
-function MainCardView({ card }: { card: MainCard }) {
+function MainCardView({
+  card,
+  upcoming,
+}: {
+  card: MainCard
+  upcoming: PlannedUpcoming[]
+}) {
+  if (card.kind === 'rest-day') {
+    const next = card.next
+    return (
+      <>
+        <div className="mt-[46px]">
+          <DeuxBarres size={22} />
+        </div>
+        <p className="mt-[14px] font-mono text-xs uppercase tracking-wide text-granit">
+          Aujourd&apos;hui
+        </p>
+        <h1
+          className="mt-1 font-display text-xl sm:text-2xl font-extrabold uppercase leading-tight tracking-[0.02em] text-schiste"
+          style={DISPLAY_STYLE}
+        >
+          Repos
+        </h1>
+        {next && (
+          <div className="mt-[26px] rounded-surface border border-granit/20 bg-craie p-[18px]">
+            <p className="font-mono text-[10px] uppercase tracking-wide text-granit">
+              Prochaine séance · {formatShortDayLabel(next.scheduledOn)}
+              {next.isClub ? ' · club' : ''}
+            </p>
+            <p className="mt-1 font-medium text-schiste">
+              {SESSION_TYPE_TITLE[next.sessionType] ?? next.sessionType.toUpperCase()}
+              {' · '}
+              <span className="tabular font-mono text-sm text-granit">
+                {formatSessionMetrics(next)}
+              </span>
+            </p>
+            {next.intent && (
+              <p className="mt-2 text-sm text-schiste">{next.intent}</p>
+            )}
+          </div>
+        )}
+        <UpcomingList upcoming={upcoming.slice(1)} />
+      </>
+    )
+  }
+
   if (card.kind === 'planned-today') {
     const p = card.planned
     const parts: string[] = []
@@ -403,6 +480,7 @@ function MainCardView({ card }: { card: MainCard }) {
             Voir la semaine
           </Link>
         </div>
+        <UpcomingList upcoming={upcoming} />
       </>
     )
   }
@@ -507,7 +585,10 @@ function MainCardView({ card }: { card: MainCard }) {
 function actionLabels(
   card: Exclude<
     MainCard,
-    { kind: 'recap-activity' } | { kind: 'nothing-recent' } | { kind: 'planned-today' }
+    | { kind: 'recap-activity' }
+    | { kind: 'nothing-recent' }
+    | { kind: 'planned-today' }
+    | { kind: 'rest-day' }
   >,
 ): { titre: string; phrase: string; href: string; cta: string } {
   switch (card.kind) {
@@ -539,6 +620,63 @@ function truncate(s: string, max: number): string {
   const t = s.trim()
   if (t.length <= max) return t
   return t.slice(0, max - 1) + '…'
+}
+
+const UPCOMING_DAY_LABEL = new Intl.DateTimeFormat('fr-FR', {
+  weekday: 'short',
+  day: 'numeric',
+})
+
+function formatShortDayLabel(iso: string): string {
+  const d = new Date(iso + 'T12:00:00Z')
+  if (Number.isNaN(d.getTime())) return iso
+  return UPCOMING_DAY_LABEL.format(d)
+}
+
+function formatSessionMetrics(p: PlannedUpcoming): string {
+  const parts: string[] = []
+  if (p.durationS) parts.push(formatDuree(p.durationS))
+  if (p.distanceM) parts.push(formatDistance(p.distanceM))
+  if (p.elevationM) parts.push(formatDplus(p.elevationM))
+  return parts.length > 0 ? parts.join(' · ') : '—'
+}
+
+function UpcomingList({ upcoming }: { upcoming: PlannedUpcoming[] }) {
+  if (upcoming.length === 0) return null
+  return (
+    <div className="mt-[26px] border-t border-granit/20 pt-[18px]">
+      <p className="font-mono text-[10px] uppercase tracking-wide text-granit">
+        À suivre cette semaine
+      </p>
+      <ul className="mt-2 space-y-1.5">
+        {upcoming.map((p) => (
+          <li
+            key={p.scheduledOn}
+            className="flex items-baseline gap-3 text-sm"
+          >
+            <span className="tabular font-mono text-xs text-granit sm:w-14">
+              {formatShortDayLabel(p.scheduledOn)}
+            </span>
+            <span className="text-schiste">
+              {SESSION_TYPE_TITLE[p.sessionType] ?? p.sessionType.toUpperCase()}
+              {p.isClub ? ' · club' : ''}
+            </span>
+            <span className="ml-auto tabular font-mono text-[10px] text-granit">
+              {formatSessionMetrics(p)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-3">
+        <Link
+          href="/planning"
+          className="font-mono text-[10px] text-granit underline"
+        >
+          voir tout le planning →
+        </Link>
+      </div>
+    </div>
+  )
 }
 
 function WeekSummaryView({ summary }: { summary: WeekSummary }) {
