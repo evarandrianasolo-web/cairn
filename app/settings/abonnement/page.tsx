@@ -109,38 +109,42 @@ export default async function AbonnementPage() {
         </ul>
       </section>
 
-      <section className="rounded-data border border-ocre/40 bg-craie p-4">
-        <h2 className="font-mono text-xs uppercase tracking-wide text-ocre">
-          Ouverture publique — en attente
+      <section className="rounded-data border-2 border-balise bg-craie p-4">
+        <h2 className="font-mono text-xs uppercase tracking-wide text-balise">
+          Blocage stratégique — P0
         </h2>
         <p className="mt-2 text-sm text-schiste">
-          Cairn n&apos;accepte pas encore d&apos;abonnements payants. Trois
-          chantiers de conformité doivent être validés avant :
+          L&apos;analyse des Terms Strava en vigueur depuis le 01/06/2026
+          révèle une <span className="font-medium">incompatibilité
+          structurelle</span> entre l&apos;architecture actuelle de Cairn
+          (SaaS coach IA payant assis sur l&apos;API Strava) et quatre
+          clauses (§5.3, §5.4, §6.2, §5.5). Aucune ouverture publique
+          n&apos;est envisagée tant qu&apos;une décision architecturale
+          n&apos;a pas été prise.
         </p>
         <ul className="mt-3 space-y-1 text-sm text-schiste">
           <li>
-            <span className="font-mono text-[10px] text-ocre">1.</span>{' '}
-            <span className="font-medium">AIPD</span> — analyse d&apos;impact
-            (art. 35 RGPD) obligatoire dès le premier utilisateur externe
-            (données de santé + coach IA).
+            <span className="font-mono text-[10px] text-balise">▸</span>{' '}
+            <span className="font-medium">Compliance Strava</span> — analyse
+            en cours, mail de clarification à envoyer à
+            developers@strava.com. Voir{' '}
+            <span className="tabular font-mono">docs/strava-compliance.md</span>.
           </li>
           <li>
-            <span className="font-mono text-[10px] text-ocre">2.</span>{' '}
-            <span className="font-medium">
-              Conditions commerciales Strava
-            </span>{' '}
-            — validation du modèle payant vs. les termes API.
+            <span className="font-mono text-[10px] text-balise">▸</span>{' '}
+            <span className="font-medium">AIPD</span> — art. 35 RGPD,
+            obligatoire dès le premier utilisateur externe.
           </li>
           <li>
-            <span className="font-mono text-[10px] text-ocre">3.</span>{' '}
-            <span className="font-medium">CGV + mentions légales</span> — texte
-            à rédiger, obligation vente en ligne France.
+            <span className="font-mono text-[10px] text-balise">▸</span>{' '}
+            <span className="font-medium">CGV + mentions légales</span> — à
+            rédiger, obligation vente en ligne France.
           </li>
         </ul>
         <p className="mt-3 text-xs italic text-granit">
-          Cf. <Link href="/" className="underline">CLAUDE.md § Chantiers en cours</Link>{' '}
-          et <span className="tabular font-mono">docs/paiement-paddle.md</span>{' '}
-          pour la séquence d&apos;activation Paddle.
+          La structure d&apos;abonnement est posée pour préparer le
+          jour J. Les prix affichés ci-dessus sont indicatifs et peuvent
+          évoluer selon la décision architecturale.
         </p>
       </section>
     </main>
