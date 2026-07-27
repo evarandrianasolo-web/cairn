@@ -23,8 +23,9 @@ supabase/.temp/
 .claude/settings.local.json
 
 # Scripts de développement locaux, souvent adossés à la clé service_role.
-# Ne jamais commiter.
-scripts/
+# Ne jamais commiter -- exceptions listées en dessous.
+scripts/*
+!scripts/spike-strava-archive.mjs
 
 # Divers
 .DS_Store
