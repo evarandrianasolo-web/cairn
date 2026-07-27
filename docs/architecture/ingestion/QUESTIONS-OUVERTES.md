@@ -8,14 +8,12 @@
 
 Le spike (`07-spike-resultats.md`) sur archive Strava réelle a produit des chiffres. Nouvelles questions à trancher :
 
-### N1 — CSV Strava en français : mapping ou forçage anglais ?
+### N1 — CSV Strava en français : mapping ou forçage anglais ? — **TRANCHÉE 27/07/2026**
 
 - **Constat** : le CSV Strava exporté est **dans la langue du compte** (français ici, 105 colonnes). Les libs communautaires (`Athlytics` en R) recommandent de basculer le compte en anglais avant export.
-- **Options** :
-  - (a) **Forcer l'utilisateur à basculer en anglais** avant export → friction UX supplémentaire, documentée dans l'écran d'import.
-  - (b) **Mapping FR → canonique** interne, avec table de correspondance maintenue.
-  - (c) **Ignorer le CSV entièrement**, ne parser que les FIT/GPX/TCX → perte d'info (colonnes calculées comme puissance moyenne pondérée, effort ressenti, notes privées).
-- **Qui tranche** : produit (Eva). Décision UX vs coût de maintenance.
+- **Décision** : **option (b) — mapping FR → canonique interne**. Aucune bascule linguistique demandée à l'utilisateur. On ne peut pas demander à un traileur de changer sa langue Strava en anglais avant chaque export.
+- **Livrable** : `csv-columns-mapping.md` (dans ce dossier) — table exhaustive des 105 positions avec catégorisation GARDÉ / IGNORÉ / BLOCKED, ancrée sur les positions (pas les noms).
+- **Suivi** : question N3 (stabilité inter-exports) et test unitaire de non-régression du hash d'en-têtes.
 
 ### N2 — Headers CSV dupliqués : impact sur parseurs standard ?
 
