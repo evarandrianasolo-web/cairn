@@ -1,10 +1,20 @@
 # AIPD — Analyse d'Impact relative à la Protection des Données
 
 > **Cairn** — Coach trail/ultra piloté par IA (Claude, Anthropic)
-> Version : 0.1 — brouillon technique
-> Date de rédaction : 2026-07-24
+> Version : **0.2** — brouillon technique actualisé
+> Date de rédaction : 2026-07-24 (v0.1) — mise à jour 2026-07-27 (v0.2)
 > Statut : **à valider par un juriste avant tout accès externe**
 > Base légale : RGPD art. 35 · CNIL, guide AIPD 2018-2023
+
+## Changelog
+
+- **v0.2 — 2026-07-27** — Refonte suite à trois décisions produit majeures :
+  1. **Sortie de l'API Strava** (voir `docs/strava-compliance.md`, `docs/architecture/socle/`) : Strava n'est plus la source primaire, l'ingestion se fait par fichiers uploadés (voir `docs/architecture/ingestion/`).
+  2. **Structure d'abonnement** posée avec provider Paddle prévu (voir `docs/paiement-paddle.md`).
+  3. **Nouveaux traitements** : laps par activité (`activity_laps`), FC par lap (`activity_lap_health` — table santé séparée avec RLS 4 policies et purge conforme), classification de séance automatique (`lib/analytics/classify-session`).
+  Progrès sur la todo v0.1 : routes `/api/export` et delete-account **faites**, purge FC réelle **faite**, consentement FC contextuel via `/settings/donnees-sante` **fait**, extension AI Act art. 50 (`/planning`, `/debriefs`, `/activities/[id]`) **faite**.
+
+- **v0.1 — 2026-07-24** — Brouillon initial généré depuis l'état du code au commit `74073d8`. Contenu ci-dessous.
 
 ---
 
@@ -27,22 +37,29 @@ Les sections marquées **[À COMPLÉTER JURISTE]** sont celles où l'appréciati
 
 ### 1.2 Périmètre des données traitées
 
+> Actualisation v0.2 : ajouts `activity_laps`, `activity_lap_health`, `training_goals`, `coach_proposals`, `subscriptions`, `subscription_plans`. Colonnes `elevation_loss_m` (D-) ajoutées à `activity_laps`.
+
 | Catégorie | Détail | Table(s) | Sensibilité |
 |---|---|---|---|
 | Identifiants | e-mail, UUID interne | `auth.users` (Supabase) | Standard |
-| Profil athlète | nom d'affichage, timezone | `athletes` | Standard |
-| Données sportives | activités, distances, dénivelés, durées, allures, cadence, notes personnelles | `activities` | Standard |
-| **Données de santé** | fréquence cardiaque moyenne/max, effort relatif Strava | `activity_health` (table séparée) | **Sensible art. 9 RGPD** |
-| Courses cibles | nom, date, distance, D+, objectif, résultat, notes | `races` | Standard |
+| Profil athlète | nom d'affichage, timezone, refs 5k/10k/semi/marathon + dates | `athletes` | Standard |
+| Données sportives | activités, distances, D+, D-, durées, allures, cadence, notes personnelles, terrain (course), classification inférée | `activities`, `races` (+ champ `terrain`) | Standard |
+| Laps d'activité | split par lap : distance, durée, allure, D+, D-, manuel/auto | `activity_laps` | Standard |
+| **Données de santé activité** | FC moyenne, FC max par activité | `activity_health` (table séparée) | **Sensible art. 9 RGPD** |
+| **Données de santé lap** | FC min, moy, max par lap | `activity_lap_health` (table séparée, RLS 4 policies, immuable côté user) | **Sensible art. 9 RGPD** |
+| Courses cibles | nom, date, distance, D+, terrain, priorité, objectif, résultat, notes | `races` | Standard |
 | Contraintes | garde d'enfants, club, vacances, blessure, etc. | `constraints` | Peut révéler famille/santé — vigilance |
+| Objectifs transversaux | libellé, domaine, date cible | `training_goals` | Standard |
 | Plan | phases, séances prévues, révisions | `plan_weeks`, `planned_sessions`, `plan_revisions`, `session_templates` | Standard |
 | Fueling | pattern de prise, grammes glucides, produits, incidents digestifs | `fueling_logs` | **Peut révéler état digestif — vigilance** |
 | Débriefs | narratif de course, axes de travail | `debriefs` | Standard |
 | Coach chat | messages, tokens consommés | `coach_threads`, `coach_messages` | Standard |
+| Propositions coach | proposition d'ajout de contrainte / course / axe de débrief en attente d'acceptation Eva | `coach_proposals` | Standard |
 | Consentement | scope, granted, texte de politique, horodatage | `consent_records` (append-only) | Standard |
-| Journal accès santé | qui/quand/pourquoi sur `activity_health` | `health_access_logs` (append-only) | Journal de sécurité |
-| Tokens Strava | access_token, refresh_token (**chiffrés AES-256-GCM**) | `strava_connections` | Sensible — chiffrement en base |
+| Journal accès santé | qui/quand/pourquoi sur `activity_health` et `activity_lap_health` | `health_access_logs` (append-only) | Journal de sécurité |
+| Tokens Strava | access_token, refresh_token (**chiffrés AES-256-GCM**) — voir §7 sur l'évolution du rôle de Strava | `strava_connections` | Sensible — chiffrement en base |
 | Metering IA | tenant + feature + tokens + coût estimé | `ai_calls` | Standard |
+| Abonnement | plan actuel, statut trial/active/canceled, ID provider paiement | `subscriptions`, `subscription_plans` | Standard |
 
 ### 1.3 Personnes concernées
 
@@ -106,13 +123,13 @@ Chaque champ du schéma répond à une finalité identifiée. Points d'attention
 
 ### 2.5 Droits des personnes
 
-| Droit | État actuel |
+| Droit | État actuel (v0.2) |
 |---|---|
-| Accès (art. 15) | **[À FAIRE]** : route `/settings/export` qui produit un JSON complet |
+| Accès (art. 15) | ✅ Route `/api/export` : JSON complet des données du compte |
 | Rectification (art. 16) | ✅ CRUD complet sur toutes les entités |
-| Effacement (art. 17) | **[À FAIRE]** : route `/settings/delete-account` avec confirmation |
-| Portabilité (art. 20) | **[À FAIRE]** : idem art. 15, format JSON |
-| Opposition (art. 21) | ✅ Retrait du consentement FC — **[À FIXER]** : la valeur en base doit être purgée à la révocation, pas seulement le flag |
+| Effacement (art. 17) | ✅ Écran `/settings/donnees` avec suppression du compte (cascade FK + purge Strava) |
+| Portabilité (art. 20) | ✅ Idem art. 15, format JSON structuré |
+| Opposition (art. 21) | ✅ Retrait du consentement FC via `/settings/donnees-sante` — purge réelle en base (`activity_health` + `activity_lap_health` supprimées, événement dans `health_access_logs`) |
 | Consentement révocable (art. 7.3) | ✅ Table `consent_records` append-only, dernière ligne = état courant |
 
 ---
@@ -183,20 +200,27 @@ Chaque champ du schéma répond à une finalité identifiée. Points d'attention
 
 ## 5. Mesures à implémenter avant beta externe
 
-| Mesure | Priorité | Effort estimé |
+> Actualisation v0.2 : 5 items rayés (faits), 4 items nouveaux liés à la sortie Strava et à Paddle.
+
+| Mesure | Priorité | État |
 |---|---|---|
-| Route `/settings/export` (accès + portabilité) | Haute | 1 j |
-| Route `/settings/delete-account` (effacement) | Haute | 1 j |
-| Purge réelle de `activity_health.avg_hr / max_hr` à la révocation du consentement FC (aujourd'hui seul le flag est basculé) | Haute | 0.5 j |
-| Consentement FC contextuel à la 1re activité (aujourd'hui : case groupée à l'inscription) | Haute | 2-3 j |
+| ~~Route `/settings/export` (accès + portabilité)~~ | ~~Haute~~ | ✅ Faite v0.2 |
+| ~~Route `/settings/delete-account` (effacement)~~ | ~~Haute~~ | ✅ Faite v0.2 |
+| ~~Purge réelle FC à la révocation~~ | ~~Haute~~ | ✅ Faite v0.2 (inclut `activity_lap_health`) |
+| ~~Consentement FC contextuel~~ | ~~Haute~~ | ✅ `/settings/donnees-sante` |
+| ~~Extension AI Act art. 50 hors `/coach`~~ | ~~Haute~~ | ✅ `/planning`, `/debriefs`, `/activities/[id]` (voir `docs/ai-act-50-couverture.md`) |
 | Politique de confidentialité + CGU + mention légale publiques | Haute | Rédaction juriste |
-| Contrats art. 28 avec Supabase, Anthropic, Vercel, Strava | Haute | À valider juriste |
+| DPA Anthropic (Zero Data Retention + no training) | **Bloquant** | À signer |
+| DPA Paddle (Merchant of Record + hébergement paiement) | Haute | Avant activation abonnement |
+| DPA Supabase + Vercel (SCC / DPF à vérifier) | Haute | À vérifier |
 | Registre de traitements (art. 30) | Haute | À rédiger |
-| Rappel sous le champ notes activité : « ces notes peuvent transiter vers Anthropic si utilisées par la fonction débrief/fueling depuis notes » | Moyenne | 1 h |
-| Bandeau cookies (analytique, préférences) | Moyenne | 2 j |
-| Notification de fuite (procédure interne) | Moyenne | Rédaction |
-| Webhook Strava chiffré (fraîcheur < 15 min et sécurité) | Moyenne | 1 j |
-| Audit externe sécurité applicative | Basse | À planifier |
+| Bandeau d'onboarding avec consentement granulaire (identification, activités, santé, IA) | Haute | Avant ouverture publique |
+| **Décision architecture socle post-Strava** (voir `docs/architecture/socle/` et `docs/architecture/ingestion/`) | **Bloquant** | Documents prêts, décision produit en cours |
+| Rappel sous le champ notes activité : « ces notes peuvent transiter vers Anthropic » | Moyenne | 1 h |
+| Marquage `generated_by: 'ai'` dans les exports `/api/export` | Moyenne | 0.5 j |
+| Bandeau cookies (analytique, préférences) | Moyenne | 2 j (si analytics ajouté) |
+| Procédure interne notification de fuite 72h | Moyenne | Rédaction |
+| Audit externe sécurité applicative | Basse | À planifier après beta |
 
 ---
 
@@ -228,3 +252,21 @@ Champs à remplir :
 ### Historique de version
 
 - **0.1 — 2026-07-24** — Brouillon technique généré depuis l'état du code au commit `74073d8`. Sections juridiques marquées à compléter.
+- **0.2 — 2026-07-27** — Refonte : sortie API Strava actée, ingestion par fichiers documentée, DPA Anthropic bloquant, activity_laps + activity_lap_health ajoutées, structure abonnement Paddle posée, extension AI Act art. 50 réalisée.
+
+---
+
+## 7. Documents complémentaires (v0.2)
+
+Une AIPD ne se lit pas seule. Un juriste tech qui la valide doit pouvoir croiser avec les documents suivants, tous versionnés dans le repo :
+
+| Document | Sujet | Statut |
+|---|---|---|
+| `docs/strava-compliance.md` | Analyse détaillée des Terms Strava (01/06/2026), 4 clauses violées, 4 options architecturales, décision-log | En cours — mail clarification à envoyer |
+| `docs/strava-mail-clarification.md` | Template du mail à `developers@strava.com` | Prêt à envoyer |
+| `docs/architecture/socle/` | Comparaison des sources de données évaluées (Garmin, COROS, Polar, Suunto, Wahoo, HealthKit, Health Connect, Terra, Vital, Rook, FIT upload) | Livré 27/07 |
+| `docs/architecture/ingestion/` | Architecture complète du pipeline d'ingestion par fichiers utilisateur (10 documents + ADR + questions ouvertes + résultats du spike sur archive réelle) | Livré 27/07, spike exécuté 27/07 |
+| `docs/architecture/ingestion/csv-columns-mapping.md` | Table exhaustive des 105 colonnes CSV Strava avec classification GARDÉ / IGNORÉ / BLOCKED | Prêt |
+| `docs/ai-act-50-couverture.md` | Audit de la couverture AI Act art. 50 par écran | Prêt |
+| `docs/paiement-paddle.md` | Séquence d'activation du provider de paiement (Merchant of Record) | Prêt |
+| `CLAUDE.md` | Règles produit codifiées : blocage poids/IMC/calories, tenant_id jamais en paramètre d'outil IA, isolation par RLS uniquement, aucune valeur brute de santé au modèle | À jour |
