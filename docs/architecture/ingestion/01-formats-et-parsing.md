@@ -14,6 +14,21 @@ Pour chaque format, on distingue :
 
 Aucun échantillon d'archive Strava ni fichier FIT réel n'a été fourni pour ce document. Rien n'a été « testé » au sens strict.
 
+> **⚠ MISE À JOUR APRÈS SPIKE — 27/07/2026**
+>
+> Le spike a été exécuté sur une archive Strava réelle de 2,44 GiB (`export_47073325.zip`, compte 4+ ans). Rapport complet dans `07-spike-resultats.md`. Points qui **contredisent** ou **précisent** ce document :
+>
+> - **Distribution formats activités confirmée** : 1 434 `.fit.gz` + 449 `.gz` (sans extension `.fit` visible mais probablement `.fit.gz` avec le second `.` absent) + 6 `.gpx` + 3 `.tcx` + 1 `.fit` = **1 893 activités**. **FIT (compressé ou non) domine à 99 %.** GPX et TCX sont marginaux et probablement liés à des activités manuelles ou d'apps tierces.
+> - **Compression compte : 26,4 : 1 maximum**, très en-dessous du seuil produit de 100 : 1 (validation Q2).
+> - **CSV en français, 105 colonnes** (pas 30-40 comme la doc anglaise Athlytics le suggérait). Format date compact `27 juil. 2026` (sans heure). Recommandation Athlytics « basculer en anglais avant export » CONFIRMÉE nécessaire OU faire un mapping FR → canonique interne. Voir `QUESTIONS-OUVERTES.md`.
+> - **Bug parsing CSV Strava** : plusieurs headers dupliqués dans la même ligne (`Temps écoulé`, `Distance`, `Effort relatif`, `Fréquence cardiaque max.`, `Déplacement-transport` apparaissent 2×). CSV non conforme au standard. **Le parser doit indexer par position, pas par nom.**
+> - **Colonnes sensibles CLAUDE.md à bloquer à l'ingestion** : `Poids de l'athlète`, `Poids du vélo`, `Calories`. Cohérence règle produit « aucun champ poids/IMC/calorie n'existe dans le schéma ».
+> - **`@garmin/fitsdk` détecte proprement un FIT tronqué** — `checkIntegrity()` retourne `false`, pas de throw non capturé. Lib validée (Q10).
+> - **`fast-xml-parser` avec `processEntities:false`** neutralise correctement une bombe billion laughs (27 bytes JSON, 4 ms). Lib validée (Q11).
+> - **Temps de parsing bout en bout** : 1,5 s en streaming pour 1 894 activités sur ZIP 2,4 GiB, aucune erreur de lecture. Le worker peut rester synchrone.
+>
+> Les valeurs `[À VÉRIFIER]` de ce doc restent tant qu'elles ne portent pas sur l'archive Strava (ex : licence `@garmin/fitsdk` reste à confirmer sur le LICENSE.txt du repo).
+
 ---
 
 ## 1. Périmètre — les 6 sources d'entrée

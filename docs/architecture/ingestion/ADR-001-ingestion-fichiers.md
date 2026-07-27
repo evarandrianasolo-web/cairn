@@ -1,6 +1,6 @@
 # ADR-001 (ingestion) — Ingestion exclusivement par fichier utilisateur
 
-- **Statut** : Proposé — conditionné à l'exécution du spike doc `07` et à la validation par juriste (doc `06` § 11).
+- **Statut** : Proposé — **spike doc `07` exécuté le 27/07/2026 (voir `07-spike-resultats.md`)**, résultats favorables sur les 15 points mesurés (whitelist confirmée, `@garmin/fitsdk` + `fast-xml-parser` validés, parsing < 5 min largement atteint). Conditionné à la validation par juriste (doc `06` § 11) et à la levée des questions N1–N6 de `QUESTIONS-OUVERTES.md` (CSV FR, headers dupliqués, stabilité inter-exports, fichiers `.gz` non typés).
 - **Date** : 27/07/2026.
 - **Auteurs** : Claude (assistant IA), sous supervision Eva.
 - **Contexte** : `BRIEF-strava-architecture-alternative.md`, docs `01` à `08` du présent dossier.

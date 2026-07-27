@@ -27,6 +27,10 @@ supabase/.temp/
 scripts/*
 !scripts/spike-strava-archive.mjs
 
+# Archives Strava et données personnelles utilisées pour les spikes.
+# Contiennent contacts, followers, photos -- jamais dans le repo.
+data/sample/
+
 # Divers
 .DS_Store
 *.pem

@@ -81,7 +81,27 @@ Un `.zip` peut contenir une entrée `../../../../../etc/passwd`. Extraction naï
 
 **C'est le contrôle le plus important pour la conformité, pas pour la sécurité.**
 
-Une archive Bulk Export Strava contient **beaucoup plus que les activités** : `media/` (photos, potentiellement d'autres personnes), `comments/`, `posts/`, `contacts_synced/` (répertoire téléphonique importé), `followers/`, `following/`, `clubs/`, `starred/`. La plupart de ces fichiers contiennent **des données personnelles de tiers** (contacts, followers) que Cairn n'a **aucune base légale** pour traiter.
+Une archive Bulk Export Strava contient **beaucoup plus que les activités**. Le spike du 27/07/2026 (voir `07-spike-resultats.md`) a inventorié **44 catégories de fichiers** sur une archive réelle de 4+ ans (2,44 GiB). Extrait :
+
+```
+activities/            ← WHITELIST
+activities.csv         ← WHITELIST
+applications.csv, bikes.csv, blocks.csv, clubs/, clubs.csv,
+comments.csv, components.csv, connected_apps.csv,
+contacts.csv, email_preferences.csv, events.csv, flags.csv,
+followers.csv, following.csv, general_preferences.csv,
+global_challenges.csv, goals.csv, group_challenges.csv,
+intercom_tickets.csv, local_legend_segments.csv, logins.csv,
+media/ (3 397 JPG + 95 MP4), media.csv, memberships.csv,
+messaging.json, mobile_device_identifiers.csv,
+monthly_recap_achievements.csv, orders.csv, partner_opt_outs.csv,
+posts.csv, privacy_zones.csv, profile.csv, profile.jpg,
+reactions.csv, routes/, routes.csv, segments.csv, shoes.csv,
+social_settings.csv, starred_routes.csv, starred_segments.csv,
+structured_details.csv, support_tickets.csv, visibility_settings.csv
+```
+
+**60 % des fichiers de l'archive sont des JPG** (photos de séance ou de profil). **95 MP4** (vidéos). Ces médias contiennent souvent d'autres personnes taggées ou visibles — Cairn n'a aucune base légale pour les traiter.
 
 **Règle absolue** — Cairn n'extrait de l'archive Strava QUE :
 - `activities.csv` (index)
@@ -89,7 +109,15 @@ Une archive Bulk Export Strava contient **beaucoup plus que les activités** : `
 
 **Tous les autres fichiers sont ignorés et non écrits sur disque**. Ce filtrage se fait au niveau du streaming, avant décompression complète : `if entry.fileName not in whitelist → skip`.
 
-Justification (voir doc `06`) : art. 5.1.c RGPD (minimisation), art. 6 (base légale — le consentement de l'utilisateur ne couvre pas les données de ses contacts).
+Justification (voir doc `06`) : art. 5.1.c RGPD (minimisation), art. 6 (base légale — le consentement de l'utilisateur ne couvre pas les données de ses contacts, de ses followers, ni les personnes taggées dans ses photos).
+
+**En complément, colonnes du CSV à bloquer à l'ingestion** (règle produit CLAUDE.md « aucun champ poids / IMC / calorie n'existe dans le schéma ») :
+- `Poids de l'athlète`
+- `Poids du vélo`
+- `Calories`
+- (les métriques propriétaires Strava `Charge d'entraînement`, `Intensité`, `Effort relatif` sont également ignorées pour éviter d'importer les analyses Strava — Cairn recalcule les siennes.)
+
+**Piège CSV Strava** — le spike a détecté plusieurs en-têtes dupliqués dans la même ligne (`Temps écoulé`, `Distance`, `Effort relatif`, `Fréquence cardiaque max.`, `Déplacement-transport` apparaissent 2 fois). Le CSV n'est pas conforme au standard. Le parser doit **indexer par position** (num de colonne), pas par nom.
 
 #### 2.1.4 Métadonnées ZIP falsifiées
 

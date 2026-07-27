@@ -4,6 +4,51 @@
 >
 > Aucune de ces questions ne doit être répondue « par intuition ». Chaque item indique **qui doit trancher** et **comment on obtient la réponse**.
 
+## MISE À JOUR APRÈS SPIKE — 27/07/2026
+
+Le spike (`07-spike-resultats.md`) sur archive Strava réelle a produit des chiffres. Nouvelles questions à trancher :
+
+### N1 — CSV Strava en français : mapping ou forçage anglais ?
+
+- **Constat** : le CSV Strava exporté est **dans la langue du compte** (français ici, 105 colonnes). Les libs communautaires (`Athlytics` en R) recommandent de basculer le compte en anglais avant export.
+- **Options** :
+  - (a) **Forcer l'utilisateur à basculer en anglais** avant export → friction UX supplémentaire, documentée dans l'écran d'import.
+  - (b) **Mapping FR → canonique** interne, avec table de correspondance maintenue.
+  - (c) **Ignorer le CSV entièrement**, ne parser que les FIT/GPX/TCX → perte d'info (colonnes calculées comme puissance moyenne pondérée, effort ressenti, notes privées).
+- **Qui tranche** : produit (Eva). Décision UX vs coût de maintenance.
+
+### N2 — Headers CSV dupliqués : impact sur parseurs standard ?
+
+- **Constat** : le CSV Strava a des en-têtes dupliqués (`Temps écoulé` × 2, `Distance` × 2, `Effort relatif` × 2, `Fréquence cardiaque max.` × 2, `Déplacement-transport` × 2). Non conforme au standard CSV.
+- **Impact** : les parseurs Node classiques (`csv-parse`, `papaparse`) qui indexent par nom **perdent la deuxième occurrence** ou lèvent une erreur.
+- **Décision technique** : parser en mode « index par position » (colonnes numérotées), pas par nom. Documenter la position exacte de chaque colonne utile dans un mapping interne. À revalider si Strava change l'ordre entre deux exports (question N3).
+- **Qui tranche** : dev. Non bloquant si on garde une couche de mapping.
+
+### N3 — Stabilité de la liste de colonnes entre deux exports ?
+
+- **Constat** : impossible à trancher avec une seule archive. Il faudrait comparer 2 exports du même compte à 6 mois d'intervalle, ou 2 exports de comptes différents.
+- **Risque** : si Strava ajoute une colonne au milieu, un mapping par position casse.
+- **Qui tranche** : à revalider après un second export (dans plusieurs mois) ou en récoltant l'archive d'un testeur externe.
+
+### N4 — Fichiers `.gz` sans double extension : sont-ils tous des FIT ?
+
+- **Constat** : le spike a compté 1 434 `.fit.gz` + 449 `.gz` (sans `.fit` visible). Les 449 pourraient être des FIT dont l'export a « perdu » la seconde extension, ou d'autres formats. À élucider en tentant un `gunzip` + `checkIntegrity()` sur un échantillon.
+- **Qui tranche** : dev, dans le premier prototype d'ingestion. Journal des extensions détectées à ingérer.
+
+### N5 — Une seule activité au nom dupliqué dans l'archive : bug Strava ?
+
+- **Constat** : 1 894 fichiers dans `activities/`, 1 893 noms uniques. Un doublon. Non identifié dans le rapport (aggregat seulement).
+- **Impact** : notre clé de dédup basée sur le nom de fichier casse pour cette activité. Fallback : dédupliquer par contenu (hash) ou par timestamp exact.
+- **Qui tranche** : dev. Ajouter un test unitaire dédié.
+
+### N6 — La colonne `Nom du fichier` du CSV correspond-elle à `activities/<nom>` ?
+
+- **Constat** : le CSV contient une colonne `Nom du fichier`. Non extraite par le spike (agrégats seulement).
+- **Décision technique** : si oui, on peut réconcilier CSV ↔ fichier activité par cette clé, plus fiable qu'un match par timestamp.
+- **Qui tranche** : dev, en lisant 5 lignes du CSV manuellement au prochain spike.
+
+---
+
 ## Section A — Techniques (à trancher par le spike doc `07`)
 
 ### A1 — Colonnes exactes et stabilité de `activities.csv`
