@@ -170,3 +170,26 @@ Ces sujets sont hors périmètre ingestion et devront être leurs propres invest
 Ce document ne présente **aucun résultat**. Toute affirmation quantitative dans le doc `01` marquée `[À VÉRIFIER]` doit rester `[À VÉRIFIER]` jusqu'à ce que ce spike ait produit son rapport.
 
 Il est explicitement demandé de ne pas inventer les chiffres.
+
+---
+
+## 8. Script prêt à l'emploi
+
+Le spike est déjà scripté dans `scripts/spike-strava-archive.mjs`. Une fois l'archive Strava reçue :
+
+```bash
+# Archive au format ZIP tel que Strava l'envoie
+node scripts/spike-strava-archive.mjs /chemin/vers/export_XXXXX.zip
+
+# Ou après extraction manuelle
+node scripts/spike-strava-archive.mjs /chemin/vers/dossier-dezippe/
+```
+
+Le script produit `docs/architecture/ingestion/07-spike-resultats.md` avec les réponses aux 15 questions sous forme d'agrégats JSON. **Aucune donnée personnelle n'y est écrite** : uniquement compteurs, tailles, distributions, en-têtes CSV.
+
+Dépendances déjà installées en devDependencies :
+- `yauzl` (streaming ZIP)
+- `@garmin/fitsdk` (parser FIT officiel)
+- `fast-xml-parser` (parser XML sécurisé)
+
+**Prérequis** : générer l'archive Strava depuis `https://www.strava.com/athlete/delete_your_account` → « Request your archive ». Attente : quelques heures à 10 jours.
