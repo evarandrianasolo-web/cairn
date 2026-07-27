@@ -17,6 +17,7 @@ import {
   type RaceForMatch,
 } from '@/lib/race-matching'
 import { classifySession, type SessionKind } from '@/lib/analytics/classify-session'
+import { AiBadge } from '@/components/ai-disclosure'
 import {
   analyzeActivity,
   createRaceFromActivity,
@@ -255,8 +256,9 @@ export default async function ActivityDetailPage({
 
       <section>
         <div className="flex items-baseline justify-between gap-3">
-          <h2 className="font-mono text-xs uppercase tracking-wide text-granit">
+          <h2 className="flex items-center gap-2 font-mono text-xs uppercase tracking-wide text-granit">
             Analyse
+            {activity.ai_summary && <AiBadge />}
           </h2>
           {activity.ai_summary_at && (
             <span className="tabular font-mono text-[10px] text-granit">

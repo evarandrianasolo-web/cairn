@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { ScreenTitle } from '@/components/screen-title'
+import { AiDisclosure } from '@/components/ai-disclosure'
 import {
   formatDateCourte,
   formatDistance,
@@ -210,6 +211,7 @@ export default async function PlanningPage({
   return (
     <main className="mx-auto max-w-4xl space-y-6 p-6">
       <ScreenTitle>Planning</ScreenTitle>
+      <AiDisclosure compact />
 
       {erreur && (
         <p className="rounded-data border border-ocre/40 bg-craie px-3 py-2 text-sm text-ocre">
