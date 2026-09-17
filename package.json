@@ -15,23 +15,27 @@
     "@anthropic-ai/sdk": "^0.113.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.110.8",
+    "csv-parse": "^7.0.2",
+    "fast-xml-parser": "^5.10.1",
+    "fit-file-parser": "^5.0.2",
     "next": "16.2.11",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "tus-js-client": "^4.3.1",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
-    "@garmin/fitsdk": "^21.208.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/yauzl": "^3.4.0",
     "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
-    "fast-xml-parser": "^5.10.1",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10",
-    "yauzl": "^3.4.0"
+    "yazl": "^3.3.1"
   }
 }

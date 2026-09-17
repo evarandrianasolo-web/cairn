@@ -66,9 +66,17 @@ Le spike (`07-spike-resultats.md`) sur archive Strava réelle a produit des chif
 - **État** : documentation indique que les erreurs sont collectées, pas thrown. Non testé.
 - **Qui tranche** : le spike (Q10).
 
-### A5 — Licence exacte de `@garmin/fitsdk`
-- **État** : présence d'un `LICENSE.txt` dans le repo GitHub non extrait par WebFetch. Compatibilité avec un usage commercial SaaS Cairn **non confirmée par lecture directe**.
-- **Qui tranche** : ouvrir le fichier `LICENSE.txt` dans le repo `garmin/fit-javascript-sdk`. **Bloquant** avant intégration.
+### A5 — Licence exacte de `@garmin/fitsdk` — **TRANCHÉE 16/09/2026**
+- **Constat** : `LICENSE.txt` lu en clair. Licence propriétaire Garmin : usage limité aux
+  « besoins commerciaux internes », interdiction de « rendre disponible à des tiers »,
+  interdiction de redistribuer sous licence open source. Ambigu pour un SaaS qui traite des
+  fichiers d'utilisateurs tiers en tant que service.
+- **Décision** : `@garmin/fitsdk` écarté. Remplacé par `fit-file-parser` (MIT,
+  github.com/jimmykane/fit-parser), déjà identifié comme alternative de repli par l'ADR
+  ingestion. Voir `09-plan-bascule-execution.md`.
+- **Limite assumée** : `fit-file-parser` n'expose pas de `checkIntegrity()` distinct — un FIT
+  corrompu remonte une erreur de parsing générique, traitée en rejet strict (pas de mode
+  récupération pour l'instant).
 
 ### A6 — Ratio de compression réel maximum d'une archive Strava
 - **État** : seuil `100:1` du doc `02` provient d'un standard OWASP générique, pas d'observation sur archives Strava réelles.
