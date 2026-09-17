@@ -3,7 +3,8 @@
 import { useRef, useState, useTransition } from 'react'
 import * as tus from 'tus-js-client'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
-import { createImportUpload, processImport } from './actions'
+import { createImportUpload, createImportPartUploadUrl, processImport } from './actions'
+import { IMPORT_PART_SIZE_BYTES } from './constants'
 
 const BUCKET = 'import-quarantine'
 
@@ -35,11 +36,13 @@ export function UploadForm() {
   const [error, setError] = useState<string | null>(null)
   const [bytesUploaded, setBytesUploaded] = useState(0)
   const [bytesTotal, setBytesTotal] = useState(0)
+  const [partsLabel, setPartsLabel] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const inputRef = useRef<HTMLInputElement>(null)
-  const uploadRef = useRef<tus.Upload | null>(null)
+  const fileRef = useRef<File | null>(null)
   const importIdRef = useRef<string | null>(null)
-  const signatureTokenRef = useRef<string | null>(null)
+  const totalPartsRef = useRef<number | null>(null)
+  const currentPartIndexRef = useRef(0)
 
   // Le flux resumable de Supabase Storage exige les deux : le token de
   // signed-upload-url (`x-signature`, scope l'ecriture a ce chemin precis)
@@ -47,8 +50,8 @@ export function UploadForm() {
   // authenticated pour la RLS du bucket). Verifie empiriquement — la doc
   // Supabase ne montre jamais les deux combines dans un seul exemple.
   // L'access_token expire (1h par defaut) bien avant qu'un upload de
-  // plusieurs Go ne se termine sur une connexion lente : on le relit a
-  // chaque tentative pour repartir avec un token frais.
+  // plusieurs Go ne se termine sur une connexion lente : on le relit avant
+  // chaque morceau pour repartir avec un token frais.
   async function getAccessToken(): Promise<string> {
     const supabase = createBrowserSupabaseClient()
     const { data: { session } } = await supabase.auth.getSession()
@@ -56,16 +59,68 @@ export function UploadForm() {
     return session.access_token
   }
 
-  // Demarre (ou reprend, si un upload interrompu correspond deja a ce
-  // fichier) l'upload TUS, puis declenche le traitement serveur une fois
-  // les octets recus. Reutilise pour le premier essai et pour "Reessayer".
-  function startOrResumeUpload(upload: tus.Upload) {
-    upload.findPreviousUploads().then((previousUploads) => {
-      if (previousUploads.length > 0) {
-        upload.resumeFromPreviousUpload(previousUploads[0])
-      }
-      upload.start()
+  // Upload d'un seul morceau. Un fingerprint stable (pas celui par defaut
+  // de tus-js-client, pense pour des File et pas des Blob issus de
+  // `.slice()`) permet a `findPreviousUploads` de retrouver un morceau
+  // interrompu et de reprendre exactement au bon octet, meme apres un
+  // rechargement de page.
+  async function uploadPart(
+    file: File,
+    importId: string,
+    partIndex: number,
+    onPartProgress: (uploaded: number, total: number) => void,
+  ): Promise<void> {
+    const start = partIndex * IMPORT_PART_SIZE_BYTES
+    const end = Math.min(start + IMPORT_PART_SIZE_BYTES, file.size)
+    const blob = file.slice(start, end)
+
+    const partFormData = new FormData()
+    partFormData.set('import_id', importId)
+    partFormData.set('part_index', String(partIndex))
+    const { path, token } = await createImportPartUploadUrl(partFormData)
+    const accessToken = await getAccessToken()
+
+    await new Promise<void>((resolve, reject) => {
+      const upload = new tus.Upload(blob, {
+        endpoint: TUS_ENDPOINT,
+        headers: { authorization: `Bearer ${accessToken}`, 'x-signature': token, 'x-upsert': 'true' },
+        uploadDataDuringCreation: true,
+        removeFingerprintOnSuccess: true,
+        retryDelays: [0, 3000, 5000, 10000, 20000],
+        chunkSize: TUS_CHUNK_SIZE,
+        fingerprint: async () => `cairn-import-${importId}-part-${partIndex}`,
+        metadata: {
+          bucketName: BUCKET,
+          objectName: path,
+          contentType: 'application/octet-stream',
+          cacheControl: '3600',
+        },
+        onProgress: onPartProgress,
+        onError: reject,
+        onSuccess: () => resolve(),
+      })
+      upload.findPreviousUploads().then((previousUploads) => {
+        if (previousUploads.length > 0) {
+          upload.resumeFromPreviousUpload(previousUploads[0])
+        }
+        upload.start()
+      })
     })
+  }
+
+  // Enchaine les morceaux a partir de `fromPart` (0 au premier essai, ou
+  // le morceau qui a echoue lors d'une reprise). Un echec sur un morceau ne
+  // fait perdre que ce morceau : les precedents restent acquis cote
+  // Storage, et `currentPartIndexRef` garde la position pour la reprise.
+  async function runUpload(file: File, importId: string, totalParts: number, fromPart: number) {
+    for (let i = fromPart; i < totalParts; i += 1) {
+      currentPartIndexRef.current = i
+      setPartsLabel(`morceau ${i + 1} / ${totalParts}`)
+      const completedBytes = i * IMPORT_PART_SIZE_BYTES
+      await uploadPart(file, importId, i, (uploaded) => {
+        setBytesUploaded(Math.min(completedBytes + uploaded, file.size))
+      })
+    }
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -75,6 +130,7 @@ export function UploadForm() {
       setError('Choisis une archive .zip.')
       return
     }
+    fileRef.current = file
     setError(null)
     setBytesUploaded(0)
     setBytesTotal(file.size)
@@ -85,42 +141,17 @@ export function UploadForm() {
         const createFormData = new FormData()
         createFormData.set('filename', file.name)
         createFormData.set('size', String(file.size))
-        const { importId, path, token } = await createImportUpload(createFormData)
+        const { importId, totalParts } = await createImportUpload(createFormData)
         importIdRef.current = importId
-        signatureTokenRef.current = token
-        const accessToken = await getAccessToken()
+        totalPartsRef.current = totalParts
 
-        await new Promise<void>((resolve, reject) => {
-          const upload = new tus.Upload(file, {
-            endpoint: TUS_ENDPOINT,
-            headers: { authorization: `Bearer ${accessToken}`, 'x-signature': token, 'x-upsert': 'true' },
-            uploadDataDuringCreation: true,
-            removeFingerprintOnSuccess: true,
-            retryDelays: [0, 3000, 5000, 10000, 20000],
-            chunkSize: TUS_CHUNK_SIZE,
-            metadata: {
-              bucketName: BUCKET,
-              objectName: path,
-              contentType: 'application/zip',
-              cacheControl: '3600',
-            },
-            onProgress: (uploaded, total) => {
-              setBytesUploaded(uploaded)
-              setBytesTotal(total)
-            },
-            onError: (err) => {
-              uploadRef.current = upload
-              reject(err)
-            },
-            onSuccess: () => resolve(),
-          })
-          uploadRef.current = upload
-          startOrResumeUpload(upload)
-        })
+        await runUpload(file, importId, totalParts, 0)
 
         setStep('processing')
+        setPartsLabel(null)
         const processFormData = new FormData()
         processFormData.set('import_id', importId)
+        processFormData.set('total_parts', String(totalParts))
         await processImport(processFormData) // redirige vers /import/[id]
       } catch (err) {
         setStep((prev) => (prev === 'uploading' ? 'upload-failed' : 'idle'))
@@ -130,30 +161,22 @@ export function UploadForm() {
   }
 
   function handleRetry() {
-    const upload = uploadRef.current
+    const file = fileRef.current
     const importId = importIdRef.current
-    const signatureToken = signatureTokenRef.current
-    if (!upload || !importId || !signatureToken) return
+    const totalParts = totalPartsRef.current
+    if (!file || !importId || !totalParts) return
     setError(null)
 
     startTransition(async () => {
       try {
         setStep('uploading')
-        const accessToken = await getAccessToken()
-        await new Promise<void>((resolve, reject) => {
-          upload.options.headers = {
-            authorization: `Bearer ${accessToken}`,
-            'x-signature': signatureToken,
-            'x-upsert': 'true',
-          }
-          upload.options.onError = (err) => reject(err)
-          upload.options.onSuccess = () => resolve()
-          startOrResumeUpload(upload)
-        })
+        await runUpload(file, importId, totalParts, currentPartIndexRef.current)
 
         setStep('processing')
+        setPartsLabel(null)
         const processFormData = new FormData()
         processFormData.set('import_id', importId)
+        processFormData.set('total_parts', String(totalParts))
         await processImport(processFormData)
       } catch (err) {
         setStep('upload-failed')
@@ -192,12 +215,13 @@ export function UploadForm() {
           </div>
           <p className="mt-2 text-sm tabular-nums text-schiste">
             {formatBytes(bytesUploaded)} / {formatBytes(bytesTotal)} — {progressPct}%
+            {partsLabel && ` (${partsLabel})`}
             {step === 'uploading' && ' — envoi en cours'}
             {step === 'upload-failed' && ' — envoi interrompu'}
           </p>
           <p className="mt-1 text-xs text-granit">
-            L&apos;envoi reprend a l&apos;octet ou il s&apos;est arrete en cas de coupure
-            reseau — inutile de recommencer depuis le debut.
+            L&apos;archive est envoyée par morceaux ; l&apos;envoi reprend au morceau
+            interrompu en cas de coupure réseau — inutile de recommencer depuis le début.
           </p>
         </div>
       )}

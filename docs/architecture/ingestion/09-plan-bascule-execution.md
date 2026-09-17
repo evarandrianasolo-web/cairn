@@ -143,6 +143,42 @@ principal avec confirmation explicite) :
 retest à 700 Mio+ pour valider le chunking réel à cette échelle (le test à 45 Mio valide le
 mécanisme de reprise, pas le débit/la stabilité sur une vraie durée de plusieurs minutes).
 
+## Mise à jour 17/09/2026 — plafond Free confirmé, upload découpé en morceaux
+
+**Constat** : la limite globale de 50 Mio est un **plafond dur du plan Free** (confirmé par la
+doc Supabase — « Free : 50 MB, hard cap »), pas un simple réglage. Eva est sur Free. Impossible
+de la dépasser sans passer sur un plan payant (Pro, ~25 $/mois). Décision d'Eva : ne pas payer
+pour l'instant, découper l'upload côté client à la place.
+
+**Ce qui a été fait** : `app/import/upload-form.tsx` découpe l'archive en morceaux de
+**45 Mio** (`app/import/constants.ts` — `IMPORT_PART_SIZE_BYTES`, marge sous le plafond de
+50 Mio) via `File.slice()`. Chaque morceau est un objet Storage indépendant
+(`{user_id}/{import_id}/part-{n}`), son propre flux TUS resumable, avec un `fingerprint`
+explicite (`cairn-import-{importId}-part-{partIndex}`) plutôt que celui par défaut de
+tus-js-client — nécessaire car un `Blob` issu de `.slice()` n'a ni `name` ni `lastModified`,
+contrairement à un `File`. Une coupure ne fait perdre que le morceau en cours ; « Reprendre
+l'envoi » reprend au morceau qui a échoué, pas depuis 0.
+
+`app/import/actions.ts` : `createImportUpload` calcule et retourne `totalParts` (ne crée plus
+de token unique) ; nouvelle action `createImportPartUploadUrl(import_id, part_index)` — un
+token signé par morceau ; `processImport` télécharge tous les morceaux dans l'ordre,
+`Buffer.concat`, puis pipeline inchangé, purge tous les morceaux en `finally`.
+
+**Testé contre le vrai projet Supabase** :
+- 700 Mio de contenu aléatoire (le fichier demandé initialement) : upload complet en 16
+  morceaux réussi (99 s), `size_bytes` en base exactement égal à la taille du fichier, échec
+  propre et attendu au traitement (pas une vraie archive Strava). Prouve que le découpage
+  contourne bien le plafond de 50 Mio.
+- **Test d'intégrité dédié** : une vraie archive zip valide de ~100 Mio (construite avec
+  `yazl`, `activities.csv` + une entrée hors-liste-blanche de bourrage pour dépasser un seul
+  morceau) envoyée en 3 morceaux (45 + 45 + ~15 Mio). Le zip reassemblé a été **lu avec
+  succès** par le parseur (`activities.csv` trouvé, 1 ligne évaluée puis rejetée — rejet dû au
+  CSV de test simplifié, pas à une corruption). Preuve directe que le réassemblage
+  (`Buffer.concat` des morceaux dans l'ordre) est fidèle à l'octet près : un désordre ou une
+  troncature aurait cassé la lecture de l'« End of central directory record » du zip, qui se
+  trouve en toute fin de fichier.
+- Toutes les ressources de test nettoyées après coup (lignes `imports`, morceaux Storage).
+
 **Prochaine étape** : le formulaire de saisie manuelle (n'existe pas du tout dans le code
 actuel — à construire de zéro), puis le test grandeur réelle : ré-importer l'archive Strava
 réelle d'Eva par ce pipeline et diffuser contre les données actuelles (§5, étape 2) avant tout
