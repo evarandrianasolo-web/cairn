@@ -9,8 +9,17 @@ import {
   type ConsentScope,
 } from '@/lib/consent/policy'
 import { getValidAccessToken } from '@/lib/strava/tokens'
-import { listActivities } from '@/lib/strava/api'
-import { extractHealth, transformActivity } from '@/lib/strava/ingest'
+import {
+  getActivityStreams,
+  listActivities,
+  listActivityLaps,
+} from '@/lib/strava/api'
+import {
+  enrichLapsFromStreams,
+  extractHealth,
+  transformActivity,
+  transformLaps,
+} from '@/lib/strava/ingest'
 
 type SupabaseServer = Awaited<ReturnType<typeof createServerSupabaseClient>>
 
@@ -57,9 +66,19 @@ async function runInitialImport(
         .filter((r): r is NonNullable<typeof r> => r !== null)
 
       if (healthRows.length > 0) {
+        // activity_health n'a pas de policy UPDATE (regle produit
+        // "creation ou suppression, jamais modification"). Refresh
+        // impose donc DELETE puis INSERT.
+        const activityIds = healthRows.map((r) => r.activity_id)
+        const { error: dErr } = await supabase
+          .from('activity_health')
+          .delete()
+          .in('activity_id', activityIds)
+        if (dErr) throw new Error(`Purge santé pre-import: ${dErr.message}`)
+
         const { error: hErr } = await supabase
           .from('activity_health')
-          .upsert(healthRows, { onConflict: 'activity_id' })
+          .insert(healthRows)
         if (hErr) throw new Error(`Import santé: ${hErr.message}`)
 
         const logRows = healthRows.map((r) => ({
@@ -144,6 +163,89 @@ export async function refreshStrava() {
   revalidatePath('/settings/strava')
   revalidatePath('/activities')
   redirect(`/settings/strava?imported=${imported}`)
+}
+
+/**
+ * Backfill des laps pour les activites recentes qui n'en ont pas
+ * encore. Limite fort pour respecter le rate limit Strava (100 req/
+ * 15 min, 1000/j). On ne traite que les 90 derniers jours et max
+ * 40 activites par appel.
+ */
+export async function backfillRecentLaps() {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const since = new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString()
+  const { data: acts, error } = await supabase
+    .from('activities')
+    .select('id, strava_activity_id')
+    .gte('started_at', since)
+    .not('strava_activity_id', 'is', null)
+    .order('started_at', { ascending: false })
+    .limit(60)
+  if (error) throw new Error(`Backfill laps read: ${error.message}`)
+  if (!acts || acts.length === 0) {
+    redirect('/settings/strava?laps_backfilled=0')
+  }
+
+  // On refetch toujours : ca permet de recuperer D- et FC pour les
+  // activites deja ingerees avant que ces colonnes existent. Le cout
+  // reste borne par la limite de 40 activites par appel.
+  const todo = acts.slice(0, 40)
+
+  const accessToken = await getValidAccessToken(supabase)
+  const fcGranted = await currentFcConsent(supabase)
+  let processed = 0
+  for (const a of todo) {
+    try {
+      const [raws, streams] = await Promise.all([
+        listActivityLaps(accessToken, a.strava_activity_id),
+        fcGranted
+          ? getActivityStreams(accessToken, a.strava_activity_id, ['altitude', 'heartrate'])
+          : getActivityStreams(accessToken, a.strava_activity_id, ['altitude']),
+      ])
+      const baseLapRows = transformLaps(raws, a.id)
+      const { laps: enrichedLaps, health: lapHealthRows } = enrichLapsFromStreams(
+        raws,
+        baseLapRows,
+        streams,
+        a.id,
+        fcGranted,
+      )
+      await supabase.from('activity_laps').delete().eq('activity_id', a.id)
+      await supabase
+        .from('activity_lap_health')
+        .delete()
+        .eq('activity_id', a.id)
+      if (enrichedLaps.length > 0) {
+        const rows = enrichedLaps.map((r) => ({ tenant_id: user.id, ...r }))
+        await supabase.from('activity_laps').insert(rows)
+      }
+      if (fcGranted && lapHealthRows.length > 0) {
+        const rows = lapHealthRows.map((r) => ({ tenant_id: user.id, ...r }))
+        await supabase.from('activity_lap_health').insert(rows)
+        await supabase.from('health_access_logs').insert({
+          tenant_id: user.id,
+          subject_table: 'activity_lap_health',
+          subject_id: a.id,
+          action: 'ecriture',
+          actor: 'system',
+          context: 'backfill laps',
+        })
+      }
+      processed += 1
+    } catch (e) {
+      // Une activite en erreur ne doit pas bloquer les autres.
+      console.warn(
+        `backfill laps activity=${a.strava_activity_id}: ${e instanceof Error ? e.message : e}`,
+      )
+    }
+  }
+
+  revalidatePath('/settings/strava')
+  revalidatePath('/activities')
+  redirect(`/settings/strava?laps_backfilled=${processed}`)
 }
 
 export async function disconnectStrava() {

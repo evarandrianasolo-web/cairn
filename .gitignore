@@ -23,8 +23,13 @@ supabase/.temp/
 .claude/settings.local.json
 
 # Scripts de développement locaux, souvent adossés à la clé service_role.
-# Ne jamais commiter.
-scripts/
+# Ne jamais commiter -- exceptions listées en dessous.
+scripts/*
+!scripts/spike-strava-archive.mjs
+
+# Archives Strava et données personnelles utilisées pour les spikes.
+# Contiennent contacts, followers, photos -- jamais dans le repo.
+data/sample/
 
 # Divers
 .DS_Store
@@ -35,3 +40,4 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 coverage/
+_handoff/

@@ -134,8 +134,8 @@ Mention permanente et visible dans l'UI du chat : l'utilisateur doit savoir qu'i
 Tant qu'il n'y a qu'une utilisatrice sur ses propres données, le RGPD ne s'applique pas (art. 2.2.c). Au premier compte tiers, tout s'applique d'un coup.
 **Ne pas ouvrir d'accès externe sans validation explicite de ma part.**
 
-### 🟡 Conditions commerciales API Strava
-À relire avant tout modèle payant. Contraintes de stockage et d'affichage à vérifier.
+### 🔴 Conditions commerciales API Strava — P0 blocker
+Analyse du 26/07/2026 : l'architecture actuelle de Cairn viole §5.3 (interdiction IA sur données Strava), §5.4 (interdiction analyse), §6.2 (rétention 7j) et §5.5 (interdiction accumulation). **Aucune ouverture publique tant que non résolu.** Options architecturales et décision-log : `docs/strava-compliance.md`. Mail de clarification à envoyer à developers@strava.com : `docs/strava-mail-clarification.md`.
 
 ### 🟡 Coût IA par utilisateur
 Non mesuré. Instrumenter les tokens dès les premiers appels : `tokens_in`, `tokens_out`, outils appelés, coût estimé.
@@ -160,7 +160,7 @@ Non mesuré. Instrumenter les tokens dès les premiers appels : `tokens_in`, `to
 
 - Commit AVANT de commencer une nouvelle tâche.
 - Format : `type(scope): description`
-- Scopes : `db`, `auth`, `strava`, `coach`, `plan`, `fueling`, `ui`, `design`, `compliance`
+- Scopes : `db`, `auth`, `strava`, `coach`, `plan`, `fueling`, `ui`, `design`, `compliance`, `billing`
 - Checkpoint demandé : `git add -A && git commit -m "..."`
 
 ---

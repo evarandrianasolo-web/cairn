@@ -38,7 +38,12 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center p-6">
       <div className="w-full max-w-sm rounded-surface bg-craie p-6">
-        <h1 className="font-display text-xl text-schiste">Cairn</h1>
+        <h1
+          className="font-display text-xl font-extrabold uppercase leading-none tracking-[0.03em] text-schiste"
+          style={{ fontVariationSettings: "'wdth' 125" }}
+        >
+          Cairn
+        </h1>
         <p className="mt-2 text-sm text-granit">
           Entre ton adresse, tu recevras un lien de connexion.
         </p>
@@ -70,8 +75,9 @@ export default function LoginPage() {
               {etat === 'envoi' ? 'Envoi…' : 'Recevoir le lien'}
             </button>
 
+            {/* ocre = vigilance ; jamais balise pour un message d'erreur. */}
             {etat === 'erreur' && (
-              <p className="mt-3 text-sm text-balise">{message}</p>
+              <p className="mt-3 text-sm text-ocre">{message}</p>
             )}
           </form>
         )}

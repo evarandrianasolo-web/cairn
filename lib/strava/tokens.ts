@@ -37,3 +37,42 @@ export async function getValidAccessToken(supabase: SupabaseClient): Promise<str
 
   return refreshed.accessToken
 }
+
+/**
+ * Variante pour les contextes hors session utilisateur (webhook Strava)
+ * ou une lecture serveur-a-serveur : on prend un client service_role
+ * (qui bypass RLS) et on scope explicitement par tenant_id.
+ * Ne PAS utiliser depuis un flow user -- prefere getValidAccessToken.
+ */
+export async function getValidAccessTokenForTenant(
+  admin: SupabaseClient,
+  tenantId: string,
+): Promise<string> {
+  const { data: conn, error } = await admin
+    .from('strava_connections')
+    .select('access_token_encrypted, refresh_token_encrypted, expires_at')
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+  if (error) throw new Error(`Strava connection lookup: ${error.message}`)
+  if (!conn) throw new Error(`Aucune connexion Strava pour ${tenantId}`)
+
+  const expiresAt = new Date(conn.expires_at).getTime() / 1000
+  const now = Date.now() / 1000
+  if (expiresAt - now > REFRESH_MARGIN_S) {
+    return decrypt(conn.access_token_encrypted)
+  }
+
+  const refreshed = await refreshTokens(decrypt(conn.refresh_token_encrypted))
+  const { error: upErr } = await admin
+    .from('strava_connections')
+    .update({
+      access_token_encrypted: encrypt(refreshed.accessToken),
+      refresh_token_encrypted: encrypt(refreshed.refreshToken),
+      expires_at: refreshed.expiresAt.toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('tenant_id', tenantId)
+  if (upErr) throw new Error(`Strava token update: ${upErr.message}`)
+
+  return refreshed.accessToken
+}
